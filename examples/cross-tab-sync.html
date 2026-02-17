@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FetchPlus - Cross-Tab Sync Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+        }
+
+        h1 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+
+        .info-box {
+            background: #f0f4ff;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin-bottom: 30px;
+            border-radius: 8px;
+        }
+
+        .button-group {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 25px;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 25px rgba(102, 126, 234, 0.6);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button.secondary {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+
+        .output {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 20px;
+            line-height: 1.6;
+        }
+
+        .success {
+            color: #4ec9b0;
+        }
+
+        .error {
+            color: #f85149;
+        }
+
+        .warning {
+            color: #f59e0b;
+        }
+
+        .timestamp {
+            color: #808080;
+        }
+
+        .sync-status {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+
+        .sync-enabled {
+            background: #10b981;
+            color: white;
+        }
+
+        .sync-disabled {
+            background: #ef4444;
+            color: white;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🔄 Cross-Tab Sync Demo</h1>
+        <p class="subtitle">
+            Open this page in multiple tabs to see cache synchronization in action!
+            <span id="sync-status" class="sync-status"></span>
+        </p>
+
+        <div class="info-box">
+            <strong>📌 Instructions:</strong>
+            <ol style="margin-left: 20px; margin-top: 10px;">
+                <li>Open this page in 2 or more browser tabs</li>
+                <li>Click "Fetch & Cache Data" in one tab</li>
+                <li>Click "Read from Cache" in another tab - you'll see the data!</li>
+                <li>Click "Clear Cache" in any tab - all tabs will be cleared</li>
+            </ol>
+        </div>
+
+        <div class="button-group">
+            <button onclick="fetchAndCache()">🌐 Fetch & Cache Data</button>
+            <button onclick="fetchWithRefresh()">🔄 Force Refresh</button>
+            <button onclick="readFromCache()">📖 Read from Cache</button>
+            <button class="secondary" onclick="clearCache()">🗑️ Clear Cache</button>
+        </div>
+
+        <div id="output" class="output"></div>
+    </div>
+
+    <script type="module" src="./cross-tab-sync.js"></script>
+</body>
+
+</html>

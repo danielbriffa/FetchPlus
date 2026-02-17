@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FetchPlus - Basic Usage Demo</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 40px 20px;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 16px;
+      padding: 40px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 2.5rem;
+    }
+
+    .subtitle {
+      color: #666;
+      margin-bottom: 30px;
+      font-size: 1.1rem;
+    }
+
+    .demo-section {
+      margin-bottom: 30px;
+      padding: 20px;
+      background: #f8f9fa;
+      border-radius: 12px;
+      border-left: 4px solid #667eea;
+    }
+
+    h2 {
+      color: #667eea;
+      margin-bottom: 15px;
+      font-size: 1.5rem;
+    }
+
+    button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 12px 30px;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+      margin-right: 10px;
+      margin-bottom: 10px;
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    .output {
+      margin-top: 15px;
+      padding: 15px;
+      background: white;
+      border-radius: 8px;
+      border: 2px solid #e0e0e0;
+      min-height: 60px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.9rem;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .cache-hit {
+      background: #d4edda;
+      border-color: #28a745;
+      color: #155724;
+      padding: 10px;
+      border-radius: 6px;
+      margin-top: 10px;
+      font-weight: 600;
+    }
+
+    .cache-miss {
+      background: #fff3cd;
+      border-color: #ffc107;
+      color: #856404;
+      padding: 10px;
+      border-radius: 6px;
+      margin-top: 10px;
+      font-weight: 600;
+    }
+
+    .timing {
+      color: #666;
+      font-size: 0.9rem;
+      margin-top: 8px;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+
+    .info-box {
+      background: #e3f2fd;
+      border-left: 4px solid #2196f3;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+
+    .info-box p {
+      color: #1976d2;
+      margin: 5px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🚀 FetchPlus Demo</h1>
+    <p class="subtitle">Automatic caching with the native fetch API</p>
+
+    <div class="info-box">
+      <p>✨ <strong>FetchPlus is initialized!</strong> All fetch requests are now automatically cached.</p>
+      <p>🎯 Try making multiple requests to see caching in action.</p>
+    </div>
+
+    <div class="demo-section">
+      <h2>Basic Caching Demo</h2>
+      <p style="color: #666; margin-bottom: 15px;">
+        Click "Fetch Data" multiple times. The first request hits the API, subsequent requests are served from cache.
+      </p>
+      <div class="controls">
+        <button onclick="fetchData()">Fetch Data</button>
+        <button onclick="clearCache()" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">Clear Cache</button>
+      </div>
+      <div id="output1" class="output">Click "Fetch Data" to start...</div>
+    </div>
+
+    <div class="demo-section">
+      <h2>Custom TTL Demo</h2>
+      <p style="color: #666; margin-bottom: 15px;">
+        Fetch with a 10-second TTL. After 10 seconds, the cache expires and a new request is made.
+      </p>
+      <div class="controls">
+        <button onclick="fetchWithTTL()">Fetch with TTL (10s)</button>
+      </div>
+      <div id="output2" class="output">Click to fetch with custom TTL...</div>
+    </div>
+
+    <div class="demo-section">
+      <h2>No Cache Demo</h2>
+      <p style="color: #666; margin-bottom: 15px;">
+        Explicitly disable caching for a request. Always hits the API.
+      </p>
+      <div class="controls">
+        <button onclick="fetchNoCache()">Fetch (No Cache)</button>
+      </div>
+      <div id="output3" class="output">Click to fetch without caching...</div>
+    </div>
+  </div>
+
+  <script type="module">
+    import FetchPlus from '../dist/index.js';
+
+    // Initialize FetchPlus with defaults
+    FetchPlus.init({
+      enableCaching: true,
+      cacheableMethods: ['GET'],
+    });
+
+    // Make functions available globally
+    window.fetchData = async function() {
+      const output = document.getElementById('output1');
+      const startTime = performance.now();
+
+      try {
+        output.innerHTML = '⏳ Fetching...';
+
+        const response = await fetch('https://jsonplaceholder.typicode.com/posts/1');
+        const data = await response.json();
+
+        const endTime = performance.now();
+        const duration = (endTime - startTime).toFixed(2);
+
+        // Check if it was cached (fast response = likely cached)
+        const fromCache = duration < 50;
+
+        output.innerHTML = `
+          <div class="${fromCache ? 'cache-hit' : 'cache-miss'}">
+            ${fromCache ? '✅ CACHE HIT' : '🌐 CACHE MISS (Fetched from API)'}
+          </div>
+          <div class="timing">⚡ Response time: ${duration}ms</div>
+          <div style="margin-top: 10px; color: #333;">
+            <strong>Data:</strong><br>
+            ${JSON.stringify(data, null, 2).substring(0, 200)}...
+          </div>
+        `;
+      } catch (error) {
+        output.innerHTML = `❌ Error: ${error.message}`;
+      }
+    };
+
+    window.fetchWithTTL = async function() {
+      const output = document.getElementById('output2');
+      const startTime = performance.now();
+
+      try {
+        output.innerHTML = '⏳ Fetching with 10s TTL...';
+
+        const response = await fetch('https://jsonplaceholder.typicode.com/posts/2', {
+          fetchPlusCache: { ttl: 10000 } // 10 seconds
+        });
+        const data = await response.json();
+
+        const endTime = performance.now();
+        const duration = (endTime - startTime).toFixed(2);
+        const fromCache = duration < 50;
+
+        output.innerHTML = `
+          <div class="${fromCache ? 'cache-hit' : 'cache-miss'}">
+            ${fromCache ? '✅ Served from cache' : '🌐 Fetched from API'}
+          </div>
+          <div class="timing">⚡ Response time: ${duration}ms</div>
+          <div style="margin-top: 10px; color: #666;">
+            💡 This cache entry expires in 10 seconds
+          </div>
+          <div style="margin-top: 10px; color: #333;">
+            <strong>Title:</strong> ${data.title}
+          </div>
+        `;
+      } catch (error) {
+        output.innerHTML = `❌ Error: ${error.message}`;
+      }
+    };
+
+    window.fetchNoCache = async function() {
+      const output = document.getElementById('output3');
+      const startTime = performance.now();
+
+      try {
+        output.innerHTML = '⏳ Fetching without cache...';
+
+        const response = await fetch('https://jsonplaceholder.typicode.com/posts/3', {
+          fetchPlusCache: false // Explicitly disable caching
+        });
+        const data = await response.json();
+
+        const endTime = performance.now();
+        const duration = (endTime - startTime).toFixed(2);
+
+        output.innerHTML = `
+          <div class="cache-miss">
+            🌐 Always fetches from API (caching disabled)
+          </div>
+          <div class="timing">⚡ Response time: ${duration}ms</div>
+          <div style="margin-top: 10px; color: #333;">
+            <strong>Title:</strong> ${data.title}
+          </div>
+        `;
+      } catch (error) {
+        output.innerHTML = `❌ Error: ${error.message}`;
+      }
+    };
+
+    window.clearCache = async function() {
+      await FetchPlus.clearCache();
+      document.getElementById('output1').innerHTML = '🗑️ Cache cleared! Try fetching again.';
+    };
+  </script>
+</body>
+</html>

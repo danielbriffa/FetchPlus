@@ -1,0 +1,54 @@
+{
+  "name": "fetchplus",
+  "version": "1.0.0",
+  "description": "Enhanced fetch API with automatic caching and axios-style interceptors - 100% backward compatible",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc && vite build && terser dist/index.js -o dist/index.js --ecma 2020 --module --toplevel --compress passes=3,pure_funcs=['console.debug'],drop_debugger=true --mangle toplevel --format comments=false --source-map \"content='dist/index.js.map',url='index.js.map'\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "vite build --watch",
+    "examples": "npm run build && npx vite --port 3000",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "fetch",
+    "cache",
+    "interceptor",
+    "axios",
+    "http",
+    "request",
+    "cache-storage",
+    "fetch-api"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@vitest/coverage-v8": "^1.6.1",
+    "jsdom": "^28.1.0",
+    "terser": "^5.36.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.10",
+    "vitest": "^1.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/fetchplus.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/fetchplus/issues"
+  }
+}
