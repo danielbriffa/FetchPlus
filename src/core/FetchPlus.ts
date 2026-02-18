@@ -1,15 +1,16 @@
-import type { CacheInterface, FetchPlusConfig, FetchPlusRequestInit, CacheOptions } from '../types/index.js';
+import type { CacheInterface, FetchPlusConfig, FetchPlusRequestInit, CacheOptions, RetryConfig } from '../types/index.js';
 import { InterceptorManager } from '../interceptors/InterceptorManager.js';
 import { CacheStorageCache } from '../cache/CacheStorageCache.js';
 import { generateCacheKey } from '../utils/cacheKey.js';
 import { isCacheable } from '../utils/responseClone.js';
 import { CacheSyncManager } from '../sync/CacheSyncManager.js';
+import { RetryManager } from '../features/retry/RetryManager.js';
 
 /**
  * Main FetchPlus class that orchestrates caching and interceptors
  */
 export class FetchPlus {
-    private config: Required<FetchPlusConfig>;
+    private config: Omit<Required<FetchPlusConfig>, 'retry'> & { retry?: RetryConfig | false };
     private interceptors: InterceptorManager;
     private syncManager: CacheSyncManager | null = null;
     private originalFetch: typeof fetch;
@@ -35,6 +36,7 @@ export class FetchPlus {
             cacheName: config.cacheName || 'fetchplus-v1',
             enableSync: config.enableSync || false,
             syncChannelName: config.syncChannelName || 'fetchplus-sync',
+            retry: config.retry,
         };
 
         // Initialize sync if enabled
@@ -139,8 +141,30 @@ export class FetchPlus {
                 }
             }
 
+            // Determine retry config
+            const retryConfig = RetryManager.mergeConfigs(
+                this.config.retry,
+                processedInit?.retry
+            );
+
+            // Strip retry property from init before passing to native fetch
+            const finalInit = processedInit ? { ...processedInit } : undefined;
+            if (finalInit && 'retry' in finalInit) {
+                delete finalInit.retry;
+            }
+
+            // Create retry manager if needed
+            const retryManager = retryConfig ? new RetryManager(retryConfig) : null;
+
             // Make the actual fetch call (either cache miss or forceRefresh)
-            const response = await this.originalFetch(processedInput, processedInit);
+            // Wrap in retry logic if retry is enabled
+            const fetchFn = async () => {
+                return await this.originalFetch(processedInput, finalInit);
+            };
+
+            const response = retryManager
+                ? await retryManager.executeWithRetry(fetchFn, finalInit?.signal || undefined)
+                : await fetchFn();
 
             // Clone response before caching (to avoid consuming the stream)
             const responseToCache = response.clone();

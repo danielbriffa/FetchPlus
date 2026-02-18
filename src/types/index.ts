@@ -1,3 +1,5 @@
+import type { RetryConfig } from './retry.js';
+
 /**
  * Cache persistence strategy
  */
@@ -126,6 +128,13 @@ export interface FetchPlusConfig {
      * @default 'fetchplus-sync'
      */
     syncChannelName?: string;
+
+    /**
+     * Global retry configuration
+     * Set to false to disable retries globally
+     * @default undefined (no retries)
+     */
+    retry?: RetryConfig | false;
 }
 
 /**
@@ -165,4 +174,15 @@ export interface FetchPlusRequestInit extends Omit<RequestInit, 'cache'> {
      * Preserved for full backward compatibility with standard fetch
      */
     cache?: RequestCache;
+
+    /**
+     * Retry configuration for this specific request
+     * - RetryConfig: Enable retries with these options
+     * - false: Disable retries for this request
+     * - undefined: Use global retry config
+     */
+    retry?: RetryConfig | false;
 }
+
+// Re-export retry types
+export type { BackoffStrategy, RetryConfig, RetryState, RetryResult } from './retry.js';

@@ -15,6 +15,12 @@ export { InterceptorManager } from './interceptors/InterceptorManager.js';
 // Cache sync manager
 export { CacheSyncManager } from './sync/CacheSyncManager.js';
 
+// Retry manager
+export { RetryManager } from './features/retry/RetryManager.js';
+
+// Errors
+export { FetchPlusError, RetryError } from './errors/index.js';
+
 // Types
 export type {
     CacheInterface,
@@ -26,6 +32,10 @@ export type {
     ResponseInterceptor,
     ErrorInterceptor,
     InterceptorId,
+    BackoffStrategy,
+    RetryConfig,
+    RetryState,
+    RetryResult,
 } from './types/index.js';
 
 // Create and export a default instance

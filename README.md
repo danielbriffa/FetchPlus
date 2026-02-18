@@ -30,6 +30,14 @@ A powerful, lightweight enhancement for JavaScript's native `fetch()` API. Add a
   - [In-Memory](#in-memory)
   - [Comparison Table](#comparison-table)
   - [Custom Cache Implementation](#custom-cache-implementation)
+- [Automatic Retry](#automatic-retry)
+  - [Basic Retry](#basic-retry)
+  - [Backoff Strategies](#backoff-strategies)
+  - [Retry-After Header](#retry-after-header)
+  - [Per-Request Retry Config](#per-request-retry-config)
+  - [Disabling Retry](#disabling-retry)
+  - [onRetry Callback](#onretry-callback)
+  - [Retry with AbortController](#retry-with-abortcontroller)
 - [Interceptors](#interceptors)
   - [Request Interceptors](#request-interceptors)
   - [Response Interceptors](#response-interceptors)
@@ -93,6 +101,7 @@ Nothing changes in your calling code. FetchPlus enhances `fetch()` transparently
 |---|---|
 | **100% Backward Compatible** | Works as a drop-in replacement for native `fetch()` |
 | **Automatic Caching** | Out-of-the-box caching with multiple storage strategies |
+| **Automatic Retry** | Configurable retry with exponential, linear, or fixed backoff |
 | **Cross-Tab Sync** | Cache updates sync across browser tabs via BroadcastChannel |
 | **Force Refresh** | Bypass cache and fetch fresh data when needed |
 | **Interceptors** | Axios-like request, response, and error interceptors |
@@ -494,6 +503,212 @@ const res = await fetch('https://api.example.com/data', {
 
 ---
 
+## Automatic Retry
+
+FetchPlus can automatically retry failed requests with configurable backoff strategies. Retries are triggered by network errors and specific HTTP status codes (429, 500, 502, 503, 504 by default).
+
+### Basic Retry
+
+Enable retry globally or per-request:
+
+```typescript
+// Global: retry all failed requests up to 3 times
+const fp = new FetchPlus({
+  retry: {
+    maxRetries: 3,
+  },
+});
+
+fp.init();
+
+// All fetch() calls now automatically retry on failure
+const res = await fetch('https://api.example.com/data');
+```
+
+### Backoff Strategies
+
+Three strategies control the delay between retries:
+
+```typescript
+// Exponential (default): 1s, 2s, 4s, 8s...
+const fp = new FetchPlus({
+  retry: {
+    backoffStrategy: 'exponential',
+    initialDelay: 1000,
+    backoffMultiplier: 2,
+    maxDelay: 30000, // cap at 30 seconds
+  },
+});
+
+// Linear: 1s, 2s, 3s, 4s...
+const fp = new FetchPlus({
+  retry: {
+    backoffStrategy: 'linear',
+    initialDelay: 1000,
+  },
+});
+
+// Fixed: 1s, 1s, 1s...
+const fp = new FetchPlus({
+  retry: {
+    backoffStrategy: 'fixed',
+    initialDelay: 1000,
+  },
+});
+```
+
+### Retry-After Header
+
+When a server responds with a `Retry-After` header (common with 429 Too Many Requests), FetchPlus respects it automatically:
+
+```typescript
+const fp = new FetchPlus({
+  retry: {
+    maxRetries: 3,
+    respectRetryAfter: true, // default: true
+  },
+});
+```
+
+The `Retry-After` header supports both seconds (`Retry-After: 120`) and HTTP-date (`Retry-After: Wed, 21 Oct 2025 07:28:00 GMT`) formats. The delay is capped at `maxDelay`.
+
+Set `respectRetryAfter: false` to always use the backoff calculation instead.
+
+### Per-Request Retry Config
+
+Override global retry settings for individual requests:
+
+```typescript
+// Use a more aggressive retry for this critical request
+const res = await fetch('https://api.example.com/payment', {
+  retry: {
+    maxRetries: 5,
+    backoffStrategy: 'exponential',
+    initialDelay: 500,
+    retryableStatusCodes: [429, 502, 503],
+  },
+});
+```
+
+### Disabling Retry
+
+```typescript
+// Disable retry for a specific request (even if globally enabled)
+const res = await fetch('https://api.example.com/fire-and-forget', {
+  retry: false,
+});
+
+// Disable retry globally
+const fp = new FetchPlus({
+  retry: false,
+});
+```
+
+### onRetry Callback
+
+Get notified before each retry attempt for logging, metrics, or UI updates:
+
+```typescript
+const res = await fetch('https://api.example.com/data', {
+  retry: {
+    maxRetries: 3,
+    onRetry: (error, attemptNumber, delayMs) => {
+      console.log(`Retry ${attemptNumber}/3 in ${delayMs}ms: ${error.message}`);
+      // Update a loading spinner, increment a metric, etc.
+    },
+  },
+});
+```
+
+### Retry with AbortController
+
+Retries respect `AbortController` — aborting the request stops all retry attempts immediately:
+
+```typescript
+const controller = new AbortController();
+
+// Cancel after 10 seconds (including retries)
+setTimeout(() => controller.abort(), 10000);
+
+try {
+  const res = await fetch('https://api.example.com/data', {
+    signal: controller.signal,
+    retry: { maxRetries: 5 },
+  });
+} catch (error) {
+  if (error.name === 'AbortError') {
+    console.log('Request and retries were cancelled');
+  }
+}
+```
+
+### Retry Configuration Reference
+
+| Property | Type | Default | Description |
+|---|---|---|---|
+| `maxRetries` | `number` | `3` | Maximum retry attempts (capped at 10) |
+| `backoffStrategy` | `'exponential' \| 'linear' \| 'fixed'` | `'exponential'` | Delay calculation strategy |
+| `initialDelay` | `number` | `1000` | Initial delay in ms before the first retry |
+| `maxDelay` | `number` | `30000` | Maximum delay between retries in ms |
+| `backoffMultiplier` | `number` | `2` | Multiplier for exponential backoff |
+| `retryableStatusCodes` | `number[]` | `[408, 429, 500, 502, 503, 504]` | HTTP status codes that trigger a retry |
+| `retryOnNetworkError` | `boolean` | `true` | Whether to retry on network failures (TypeError) |
+| `respectRetryAfter` | `boolean` | `true` | Respect the Retry-After response header |
+| `onRetry` | `function` | - | Callback `(error, attemptNumber, delayMs) => void` |
+
+### How Retry Fits in the Pipeline
+
+```
+fetch('https://api.example.com/data')
+  │
+  ▼
+Request Interceptors (run once)
+  │
+  ▼
+Cache Lookup (if hit, return immediately — no retry needed)
+  │ (cache miss)
+  ▼
+┌────────────────────────────┐
+│  Native fetch()            │◄──┐
+│                            │   │ retry (with backoff delay)
+│  → success? return         │   │
+│  → retryable error/status? ├───┘
+│  → all retries exhausted?  │──► throw RetryError
+└────────────────────────────┘
+  │ (success)
+  ▼
+Cache Storage (cache the successful response)
+  │
+  ▼
+Response Interceptors (run once on final response)
+  │
+  ▼
+Return to caller
+```
+
+Request interceptors run **once** before the retry loop. Response interceptors run **once** after the final successful attempt. If all retries are exhausted, a `RetryError` is thrown (which error interceptors can handle).
+
+### RetryError
+
+When all retry attempts are exhausted, a `RetryError` is thrown with metadata:
+
+```typescript
+import { RetryError } from 'fetchplus';
+
+try {
+  await fetch('https://api.example.com/unstable');
+} catch (error) {
+  if (error instanceof RetryError) {
+    console.log(error.message);    // "Request failed after 4 attempts"
+    console.log(error.attempts);   // 4
+    console.log(error.lastError);  // The underlying TypeError or Error
+    console.log(error.totalDelay); // Total ms spent waiting between retries
+  }
+}
+```
+
+---
+
 ## Interceptors
 
 Interceptors let you run logic before requests, after responses, or when errors occur. They work like middleware and execute in the order they were registered.
@@ -745,6 +960,7 @@ interface FetchPlusConfig {
   cacheName?: string;
   enableSync?: boolean;
   syncChannelName?: string;
+  retry?: RetryConfig | false;
 }
 ```
 
@@ -758,6 +974,7 @@ interface FetchPlusConfig {
 | `cacheName` | `string` | `'fetchplus-v1'` | Name for the Cache Storage API cache |
 | `enableSync` | `boolean` | `false` | Whether cross-tab sync is enabled |
 | `syncChannelName` | `string` | `'fetchplus-sync'` | BroadcastChannel name for sync |
+| `retry` | `RetryConfig \| false` | `undefined` | Global retry config. See [Automatic Retry](#automatic-retry) |
 
 ### FetchPlusRequestInit
 
@@ -769,6 +986,7 @@ interface FetchPlusRequestInit extends RequestInit {
   skipInterceptors?: boolean;
   enableSync?: boolean;
   forceRefresh?: boolean;
+  retry?: RetryConfig | false;
 }
 ```
 
@@ -778,6 +996,7 @@ interface FetchPlusRequestInit extends RequestInit {
 | `skipInterceptors` | `boolean` | `false` | Skip all interceptors for this request |
 | `enableSync` | `boolean` | (uses global) | Override global sync setting for this request |
 | `forceRefresh` | `boolean` | `false` | Bypass cache read and fetch from network. The fresh response is still cached |
+| `retry` | `RetryConfig \| false` | (uses global) | Retry config for this request. Pass `false` to disable retry. See [Automatic Retry](#automatic-retry) |
 
 All standard `fetch()` options (`method`, `headers`, `body`, `signal`, etc.) are fully supported.
 
@@ -920,25 +1139,27 @@ fp.getInterceptors().addRequestInterceptor(async (input, init) => {
 
 ### Automatic Retry on Failure
 
-Retry failed requests up to 3 times with exponential backoff:
+Retry failed requests with built-in retry support:
 
 ```typescript
-fp.getInterceptors().addErrorInterceptor(async (error) => {
-  const maxRetries = 3;
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-      // Re-attempt the request using the original fetch
-      // (you'll need to capture the request details in a closure)
-      console.log(`Retry attempt ${attempt}...`);
-      return; // let the error propagate to try next interceptor
-    } catch {
-      if (attempt === maxRetries) throw error;
-    }
-  }
+const fp = new FetchPlus({
+  retry: {
+    maxRetries: 3,
+    backoffStrategy: 'exponential',
+    initialDelay: 1000,
+    onRetry: (error, attempt, delay) => {
+      console.log(`Retry attempt ${attempt} in ${delay}ms: ${error.message}`);
+    },
+  },
 });
+
+fp.init();
+
+// All requests now automatically retry on failure
+const res = await fetch('https://api.example.com/data');
 ```
+
+See [Automatic Retry](#automatic-retry) for full documentation.
 
 ### Request Logging
 
@@ -1055,6 +1276,11 @@ import FetchPlus, {
   InMemoryCache,
   InterceptorManager,
   CacheSyncManager,
+  RetryManager,
+
+  // Errors
+  FetchPlusError,
+  RetryError,
 
   // Types
   FetchPlusConfig,
@@ -1066,6 +1292,8 @@ import FetchPlus, {
   ResponseInterceptor,
   ErrorInterceptor,
   InterceptorId,
+  RetryConfig,
+  BackoffStrategy,
 } from 'fetchplus';
 ```
 
