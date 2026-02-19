@@ -18,6 +18,9 @@ export { CacheSyncManager } from './sync/CacheSyncManager.js';
 // Retry manager
 export { RetryManager } from './features/retry/RetryManager.js';
 
+// Deduplication manager
+export { DeduplicationManager } from './features/dedup/DeduplicationManager.js';
+
 // Errors
 export { FetchPlusError, RetryError } from './errors/index.js';
 
@@ -36,6 +39,8 @@ export type {
     RetryConfig,
     RetryState,
     RetryResult,
+    DeduplicationConfig,
+    InFlightRequest,
 } from './types/index.js';
 
 // Create and export a default instance

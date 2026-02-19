@@ -1,18 +1,20 @@
-import type { CacheInterface, FetchPlusConfig, FetchPlusRequestInit, CacheOptions, RetryConfig } from '../types/index.js';
+import type { CacheInterface, FetchPlusConfig, FetchPlusRequestInit, CacheOptions, RetryConfig, DeduplicationConfig } from '../types/index.js';
 import { InterceptorManager } from '../interceptors/InterceptorManager.js';
 import { CacheStorageCache } from '../cache/CacheStorageCache.js';
 import { generateCacheKey } from '../utils/cacheKey.js';
 import { isCacheable } from '../utils/responseClone.js';
 import { CacheSyncManager } from '../sync/CacheSyncManager.js';
 import { RetryManager } from '../features/retry/RetryManager.js';
+import { DeduplicationManager } from '../features/dedup/DeduplicationManager.js';
 
 /**
  * Main FetchPlus class that orchestrates caching and interceptors
  */
 export class FetchPlus {
-    private config: Omit<Required<FetchPlusConfig>, 'retry'> & { retry?: RetryConfig | false };
+    private config: Omit<Required<FetchPlusConfig>, 'retry' | 'deduplication'> & { retry?: RetryConfig | false; deduplication?: DeduplicationConfig };
     private interceptors: InterceptorManager;
     private syncManager: CacheSyncManager | null = null;
+    private deduplicationManager: DeduplicationManager | null = null;
     private originalFetch: typeof fetch;
     private isInitialized = false;
 
@@ -37,11 +39,17 @@ export class FetchPlus {
             enableSync: config.enableSync || false,
             syncChannelName: config.syncChannelName || 'fetchplus-sync',
             retry: config.retry,
+            deduplication: config.deduplication,
         };
 
         // Initialize sync if enabled
         if (this.config.enableSync) {
             this.initSync();
+        }
+
+        // Initialize deduplication if enabled
+        if (this.config.deduplication?.enabled) {
+            this.deduplicationManager = new DeduplicationManager(this.config.deduplication);
         }
     }
 
@@ -89,6 +97,14 @@ export class FetchPlus {
                 this.syncManager.close();
                 this.syncManager = null;
             }
+
+            // Initialize or clear deduplication based on updated config
+            if (config.deduplication?.enabled && !this.deduplicationManager) {
+                this.deduplicationManager = new DeduplicationManager(config.deduplication);
+            } else if (config.deduplication?.enabled === false && this.deduplicationManager) {
+                this.deduplicationManager.clearAll();
+                this.deduplicationManager = null;
+            }
         }
 
         // Replace global fetch if enabled
@@ -107,6 +123,17 @@ export class FetchPlus {
         input: RequestInfo | URL,
         init?: FetchPlusRequestInit
     ): Promise<Response> => {
+        // Execute fetch logic (interceptors run here, dedup happens inside)
+        return await this.executeFetch(input, init);
+    };
+
+    /**
+     * Internal fetch execution logic
+     */
+    private async executeFetch(
+        input: RequestInfo | URL,
+        init?: FetchPlusRequestInit
+    ): Promise<Response> {
         try {
             // Execute request interceptors unless skipped
             let processedInput = input;
@@ -118,71 +145,45 @@ export class FetchPlus {
                 processedInit = intercepted.init as FetchPlusRequestInit | undefined;
             }
 
-            // Determine if caching is enabled for this request
-            const shouldCache = this.shouldCacheRequest(processedInput, processedInit);
+            // Check if deduplication should be applied (after interceptors)
+            // If deduplicate: true is explicitly set, create a manager on-demand
+            if (processedInit?.deduplicate === true && !this.deduplicationManager) {
+                this.deduplicationManager = new DeduplicationManager();
+            }
 
-            // Determine if sync is enabled for this request
-            const shouldSync = this.shouldSync(processedInit);
+            const shouldDeduplicate =
+                processedInit?.deduplicate !== false &&
+                this.deduplicationManager !== null;
 
-            // Get the cache to use for this request
-            const cache = this.getCacheForRequest(processedInit);
+            // If deduplication is enabled, wrap the core fetch logic (cache + retry + network)
+            if (shouldDeduplicate) {
+                // Strip deduplicate property from init before processing
+                const initWithoutDedup = processedInit ? { ...processedInit } : undefined;
+                if (initWithoutDedup && 'deduplicate' in initWithoutDedup) {
+                    delete initWithoutDedup.deduplicate;
+                }
 
-            // Try to get from cache if caching is enabled AND not forcing refresh
-            if (shouldCache && cache && !processedInit?.forceRefresh) {
-                const cacheKey = generateCacheKey(processedInput, processedInit);
-                const cachedResponse = await cache.get(cacheKey);
-
-                if (cachedResponse) {
-                    // Execute response interceptors on cached response
-                    if (!processedInit?.skipInterceptors) {
-                        return await this.interceptors.executeResponseInterceptors(cachedResponse);
+                const response = await this.deduplicationManager!.deduplicate(
+                    processedInput,
+                    initWithoutDedup,
+                    async () => {
+                        return await this.executeCoreFetch(processedInput, initWithoutDedup);
                     }
-                    return cachedResponse;
+                );
+
+                // Execute response interceptors
+                if (!init?.skipInterceptors) {
+                    return await this.interceptors.executeResponseInterceptors(response);
                 }
+
+                return response;
             }
 
-            // Determine retry config
-            const retryConfig = RetryManager.mergeConfigs(
-                this.config.retry,
-                processedInit?.retry
-            );
-
-            // Strip retry property from init before passing to native fetch
-            const finalInit = processedInit ? { ...processedInit } : undefined;
-            if (finalInit && 'retry' in finalInit) {
-                delete finalInit.retry;
-            }
-
-            // Create retry manager if needed
-            const retryManager = retryConfig ? new RetryManager(retryConfig) : null;
-
-            // Make the actual fetch call (either cache miss or forceRefresh)
-            // Wrap in retry logic if retry is enabled
-            const fetchFn = async () => {
-                return await this.originalFetch(processedInput, finalInit);
-            };
-
-            const response = retryManager
-                ? await retryManager.executeWithRetry(fetchFn, finalInit?.signal || undefined)
-                : await fetchFn();
-
-            // Clone response before caching (to avoid consuming the stream)
-            const responseToCache = response.clone();
-
-            // Cache the response if applicable
-            if (shouldCache && cache && isCacheable(response)) {
-                const cacheKey = generateCacheKey(processedInput, processedInit);
-                const cacheOptions = this.getCacheOptionsForRequest(processedInit);
-                await cache.set(cacheKey, responseToCache, cacheOptions);
-
-                // Broadcast cache update to other tabs if sync is enabled
-                if (shouldSync && this.syncManager) {
-                    this.syncManager.broadcast('set', cacheKey);
-                }
-            }
+            // Otherwise, execute core fetch directly
+            const response = await this.executeCoreFetch(processedInput, processedInit);
 
             // Execute response interceptors
-            if (!processedInit?.skipInterceptors) {
+            if (!init?.skipInterceptors) {
                 return await this.interceptors.executeResponseInterceptors(response);
             }
 
@@ -194,7 +195,82 @@ export class FetchPlus {
             }
             throw error;
         }
-    };
+    }
+
+    /**
+     * Core fetch logic (cache + retry + network, no interceptors)
+     */
+    private async executeCoreFetch(
+        processedInput: RequestInfo | URL,
+        processedInit?: FetchPlusRequestInit
+    ): Promise<Response> {
+
+        // Determine if caching is enabled for this request
+        const shouldCache = this.shouldCacheRequest(processedInput, processedInit);
+
+        // Determine if sync is enabled for this request
+        const shouldSync = this.shouldSync(processedInit);
+
+        // Get the cache to use for this request
+        const cache = this.getCacheForRequest(processedInit);
+
+        // Try to get from cache if caching is enabled AND not forcing refresh
+        if (shouldCache && cache && !processedInit?.forceRefresh) {
+            const cacheKey = generateCacheKey(processedInput, processedInit);
+            const cachedResponse = await cache.get(cacheKey);
+
+            if (cachedResponse) {
+                return cachedResponse;
+            }
+        }
+
+        // Determine retry config
+        const retryConfig = RetryManager.mergeConfigs(
+            this.config.retry,
+            processedInit?.retry
+        );
+
+        // Strip retry and deduplicate properties from init before passing to native fetch
+        const finalInit = processedInit ? { ...processedInit } : undefined;
+        if (finalInit) {
+            if ('retry' in finalInit) {
+                delete finalInit.retry;
+            }
+            if ('deduplicate' in finalInit) {
+                delete finalInit.deduplicate;
+            }
+        }
+
+        // Create retry manager if needed
+        const retryManager = retryConfig ? new RetryManager(retryConfig) : null;
+
+        // Make the actual fetch call (either cache miss or forceRefresh)
+        // Wrap in retry logic if retry is enabled
+        const fetchFn = async () => {
+            return await this.originalFetch(processedInput, finalInit);
+        };
+
+        const response = retryManager
+            ? await retryManager.executeWithRetry(fetchFn, finalInit?.signal || undefined)
+            : await fetchFn();
+
+        // Clone response before caching (to avoid consuming the stream)
+        const responseToCache = response.clone();
+
+        // Cache the response if applicable
+        if (shouldCache && cache && isCacheable(response)) {
+            const cacheKey = generateCacheKey(processedInput, processedInit);
+            const cacheOptions = this.getCacheOptionsForRequest(processedInit);
+            await cache.set(cacheKey, responseToCache, cacheOptions);
+
+            // Broadcast cache update to other tabs if sync is enabled
+            if (shouldSync && this.syncManager) {
+                this.syncManager.broadcast('set', cacheKey);
+            }
+        }
+
+        return response;
+    }
 
     /**
      * Determine if a request should be cached
@@ -313,6 +389,12 @@ export class FetchPlus {
         if (this.syncManager) {
             this.syncManager.close();
             this.syncManager = null;
+        }
+
+        // Clear deduplication manager
+        if (this.deduplicationManager) {
+            this.deduplicationManager.clearAll();
+            this.deduplicationManager = null;
         }
 
         this.isInitialized = false;

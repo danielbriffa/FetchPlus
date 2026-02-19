@@ -1,4 +1,5 @@
 import type { RetryConfig } from './retry.js';
+import type { DeduplicationConfig } from './dedup.js';
 
 /**
  * Cache persistence strategy
@@ -135,6 +136,12 @@ export interface FetchPlusConfig {
      * @default undefined (no retries)
      */
     retry?: RetryConfig | false;
+
+    /**
+     * Request deduplication configuration
+     * @default { enabled: false }
+     */
+    deduplication?: DeduplicationConfig;
 }
 
 /**
@@ -182,7 +189,16 @@ export interface FetchPlusRequestInit extends Omit<RequestInit, 'cache'> {
      * - undefined: Use global retry config
      */
     retry?: RetryConfig | false;
+
+    /**
+     * Enable/disable deduplication for this specific request
+     * Overrides global deduplication setting
+     */
+    deduplicate?: boolean;
 }
 
 // Re-export retry types
 export type { BackoffStrategy, RetryConfig, RetryState, RetryResult } from './retry.js';
+
+// Re-export dedup types
+export type { DeduplicationConfig, InFlightRequest } from './dedup.js';
