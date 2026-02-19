@@ -1,5 +1,6 @@
 import type { RetryConfig } from './retry.js';
 import type { DeduplicationConfig } from './dedup.js';
+import type { TimeoutConfig } from './timeout.js';
 
 /**
  * Cache persistence strategy
@@ -142,6 +143,11 @@ export interface FetchPlusConfig {
      * @default { enabled: false }
      */
     deduplication?: DeduplicationConfig;
+
+    /**
+     * Timeout configuration
+     */
+    timeout?: TimeoutConfig;
 }
 
 /**
@@ -195,6 +201,14 @@ export interface FetchPlusRequestInit extends Omit<RequestInit, 'cache'> {
      * Overrides global deduplication setting
      */
     deduplicate?: boolean;
+
+    /**
+     * Timeout in milliseconds for this request
+     * Overrides defaultTimeout from config
+     * Set to 0 or negative to disable timeout for this request
+     * @default undefined (use global default or no timeout)
+     */
+    timeout?: number;
 }
 
 // Re-export retry types
@@ -202,3 +216,6 @@ export type { BackoffStrategy, RetryConfig, RetryState, RetryResult } from './re
 
 // Re-export dedup types
 export type { DeduplicationConfig, InFlightRequest } from './dedup.js';
+
+// Re-export timeout types
+export type { TimeoutConfig } from './timeout.js';

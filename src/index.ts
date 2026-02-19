@@ -21,8 +21,11 @@ export { RetryManager } from './features/retry/RetryManager.js';
 // Deduplication manager
 export { DeduplicationManager } from './features/dedup/DeduplicationManager.js';
 
+// Timeout manager
+export { TimeoutManager } from './features/timeout/TimeoutManager.js';
+
 // Errors
-export { FetchPlusError, RetryError } from './errors/index.js';
+export { FetchPlusError, RetryError, TimeoutError } from './errors/index.js';
 
 // Types
 export type {
@@ -41,6 +44,7 @@ export type {
     RetryResult,
     DeduplicationConfig,
     InFlightRequest,
+    TimeoutConfig,
 } from './types/index.js';
 
 // Create and export a default instance

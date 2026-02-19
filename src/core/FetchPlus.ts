@@ -1,4 +1,4 @@
-import type { CacheInterface, FetchPlusConfig, FetchPlusRequestInit, CacheOptions, RetryConfig, DeduplicationConfig } from '../types/index.js';
+import type { CacheInterface, FetchPlusConfig, FetchPlusRequestInit, CacheOptions, RetryConfig, DeduplicationConfig, TimeoutConfig } from '../types/index.js';
 import { InterceptorManager } from '../interceptors/InterceptorManager.js';
 import { CacheStorageCache } from '../cache/CacheStorageCache.js';
 import { generateCacheKey } from '../utils/cacheKey.js';
@@ -6,12 +6,13 @@ import { isCacheable } from '../utils/responseClone.js';
 import { CacheSyncManager } from '../sync/CacheSyncManager.js';
 import { RetryManager } from '../features/retry/RetryManager.js';
 import { DeduplicationManager } from '../features/dedup/DeduplicationManager.js';
+import { TimeoutManager } from '../features/timeout/TimeoutManager.js';
 
 /**
  * Main FetchPlus class that orchestrates caching and interceptors
  */
 export class FetchPlus {
-    private config: Omit<Required<FetchPlusConfig>, 'retry' | 'deduplication'> & { retry?: RetryConfig | false; deduplication?: DeduplicationConfig };
+    private config: Omit<Required<FetchPlusConfig>, 'retry' | 'deduplication' | 'timeout'> & { retry?: RetryConfig | false; deduplication?: DeduplicationConfig; timeout?: TimeoutConfig };
     private interceptors: InterceptorManager;
     private syncManager: CacheSyncManager | null = null;
     private deduplicationManager: DeduplicationManager | null = null;
@@ -40,6 +41,7 @@ export class FetchPlus {
             syncChannelName: config.syncChannelName || 'fetchplus-sync',
             retry: config.retry,
             deduplication: config.deduplication,
+            timeout: config.timeout,
         };
 
         // Initialize sync if enabled
@@ -124,6 +126,7 @@ export class FetchPlus {
         init?: FetchPlusRequestInit
     ): Promise<Response> => {
         // Execute fetch logic (interceptors run here, dedup happens inside)
+        // Timeout is handled inside executeCoreFetch
         return await this.executeFetch(input, init);
     };
 
@@ -204,6 +207,41 @@ export class FetchPlus {
         processedInput: RequestInfo | URL,
         processedInit?: FetchPlusRequestInit
     ): Promise<Response> {
+        // Determine timeout value
+        const timeoutMs = TimeoutManager.getTimeoutValue(
+            processedInit?.timeout,
+            this.config.timeout?.defaultTimeout
+        );
+
+        // If timeout is set and positive, wrap the core fetch with timeout
+        // 0 or negative means disabled, null means not configured
+        if (timeoutMs !== null && timeoutMs > 0) {
+            return await TimeoutManager.executeWithTimeout(
+                async (signal?: AbortSignal) => {
+                    // Create new init with the combined signal
+                    const initWithSignal: FetchPlusRequestInit | undefined = processedInit
+                        ? { ...processedInit, signal }
+                        : signal ? { signal } : undefined;
+
+                    // Execute the core fetch with the combined signal
+                    return await this.executeCoreFetchWithoutTimeout(processedInput, initWithSignal);
+                },
+                timeoutMs,
+                processedInit?.signal ?? undefined
+            );
+        }
+
+        // Execute core fetch without timeout
+        return await this.executeCoreFetchWithoutTimeout(processedInput, processedInit);
+    }
+
+    /**
+     * Core fetch logic without timeout wrapper
+     */
+    private async executeCoreFetchWithoutTimeout(
+        processedInput: RequestInfo | URL,
+        processedInit?: FetchPlusRequestInit
+    ): Promise<Response> {
 
         // Determine if caching is enabled for this request
         const shouldCache = this.shouldCacheRequest(processedInput, processedInit);
@@ -230,7 +268,7 @@ export class FetchPlus {
             processedInit?.retry
         );
 
-        // Strip retry and deduplicate properties from init before passing to native fetch
+        // Strip retry, deduplicate, and timeout properties from init before passing to native fetch
         const finalInit = processedInit ? { ...processedInit } : undefined;
         if (finalInit) {
             if ('retry' in finalInit) {
@@ -238,6 +276,9 @@ export class FetchPlus {
             }
             if ('deduplicate' in finalInit) {
                 delete finalInit.deduplicate;
+            }
+            if ('timeout' in finalInit) {
+                delete finalInit.timeout;
             }
         }
 
