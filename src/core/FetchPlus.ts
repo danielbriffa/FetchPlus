@@ -1,4 +1,4 @@
-import type { CacheInterface, FetchPlusConfig, FetchPlusRequestInit, CacheOptions, RetryConfig, DeduplicationConfig, TimeoutConfig } from '../types/index.js';
+import type { CacheInterface, FetchPlusConfig, FetchPlusRequestInit, CacheOptions, RetryConfig, DeduplicationConfig, TimeoutConfig, OfflineConfig } from '../types/index.js';
 import { InterceptorManager } from '../interceptors/InterceptorManager.js';
 import { CacheStorageCache } from '../cache/CacheStorageCache.js';
 import { generateCacheKey } from '../utils/cacheKey.js';
@@ -7,15 +7,17 @@ import { CacheSyncManager } from '../sync/CacheSyncManager.js';
 import { RetryManager } from '../features/retry/RetryManager.js';
 import { DeduplicationManager } from '../features/dedup/DeduplicationManager.js';
 import { TimeoutManager } from '../features/timeout/TimeoutManager.js';
+import { OfflineManager } from '../features/offline/OfflineManager.js';
 
 /**
  * Main FetchPlus class that orchestrates caching and interceptors
  */
 export class FetchPlus {
-    private config: Omit<Required<FetchPlusConfig>, 'retry' | 'deduplication' | 'timeout'> & { retry?: RetryConfig | false; deduplication?: DeduplicationConfig; timeout?: TimeoutConfig };
+    private config: Omit<Required<FetchPlusConfig>, 'retry' | 'deduplication' | 'timeout' | 'offline'> & { retry?: RetryConfig | false; deduplication?: DeduplicationConfig; timeout?: TimeoutConfig; offline?: OfflineConfig };
     private interceptors: InterceptorManager;
     private syncManager: CacheSyncManager | null = null;
     private deduplicationManager: DeduplicationManager | null = null;
+    private offlineManager: OfflineManager | null = null;
     private originalFetch: typeof fetch;
     private isInitialized = false;
 
@@ -42,6 +44,7 @@ export class FetchPlus {
             retry: config.retry,
             deduplication: config.deduplication,
             timeout: config.timeout,
+            offline: config.offline,
         };
 
         // Initialize sync if enabled
@@ -52,6 +55,11 @@ export class FetchPlus {
         // Initialize deduplication if enabled
         if (this.config.deduplication?.enabled) {
             this.deduplicationManager = new DeduplicationManager(this.config.deduplication);
+        }
+
+        // Initialize offline manager if enabled
+        if (this.config.offline?.enabled) {
+            this.offlineManager = new OfflineManager(this.config.offline, this.originalFetch);
         }
     }
 
@@ -106,6 +114,14 @@ export class FetchPlus {
             } else if (config.deduplication?.enabled === false && this.deduplicationManager) {
                 this.deduplicationManager.clearAll();
                 this.deduplicationManager = null;
+            }
+
+            // Initialize or clear offline manager based on updated config
+            if (config.offline?.enabled && !this.offlineManager) {
+                this.offlineManager = new OfflineManager(config.offline, this.originalFetch);
+            } else if (config.offline?.enabled === false && this.offlineManager) {
+                this.offlineManager.destroy();
+                this.offlineManager = null;
             }
         }
 
@@ -242,6 +258,45 @@ export class FetchPlus {
         processedInput: RequestInfo | URL,
         processedInit?: FetchPlusRequestInit
     ): Promise<Response> {
+        // Get the cache to use for this request
+        const cache = this.getCacheForRequest(processedInit);
+
+        // If offline manager is enabled, wrap the entire fetch logic with offline handling
+        if (this.offlineManager && cache) {
+            // Strip offline-specific properties from init before passing to core logic
+            const initWithoutOffline = processedInit ? { ...processedInit } : undefined;
+            if (initWithoutOffline) {
+                if ('offlineStrategy' in initWithoutOffline) {
+                    delete initWithoutOffline.offlineStrategy;
+                }
+                if ('queueIfOffline' in initWithoutOffline) {
+                    delete initWithoutOffline.queueIfOffline;
+                }
+            }
+
+            return await this.offlineManager.executeWithOfflineHandling(
+                processedInput,
+                initWithoutOffline,
+                cache,
+                async () => {
+                    return await this.executeCoreFetchLogic(processedInput, initWithoutOffline);
+                },
+                processedInit?.offlineStrategy,
+                processedInit?.queueIfOffline
+            );
+        }
+
+        // No offline manager - execute core fetch logic directly
+        return await this.executeCoreFetchLogic(processedInput, processedInit);
+    }
+
+    /**
+     * Core fetch logic (cache + retry + network)
+     */
+    private async executeCoreFetchLogic(
+        processedInput: RequestInfo | URL,
+        processedInit?: FetchPlusRequestInit
+    ): Promise<Response> {
 
         // Determine if caching is enabled for this request
         const shouldCache = this.shouldCacheRequest(processedInput, processedInit);
@@ -268,7 +323,7 @@ export class FetchPlus {
             processedInit?.retry
         );
 
-        // Strip retry, deduplicate, and timeout properties from init before passing to native fetch
+        // Strip retry, deduplicate, timeout, and offline properties from init before passing to native fetch
         const finalInit = processedInit ? { ...processedInit } : undefined;
         if (finalInit) {
             if ('retry' in finalInit) {
@@ -279,6 +334,12 @@ export class FetchPlus {
             }
             if ('timeout' in finalInit) {
                 delete finalInit.timeout;
+            }
+            if ('offlineStrategy' in finalInit) {
+                delete finalInit.offlineStrategy;
+            }
+            if ('queueIfOffline' in finalInit) {
+                delete finalInit.queueIfOffline;
             }
         }
 
@@ -436,6 +497,12 @@ export class FetchPlus {
         if (this.deduplicationManager) {
             this.deduplicationManager.clearAll();
             this.deduplicationManager = null;
+        }
+
+        // Destroy offline manager
+        if (this.offlineManager) {
+            this.offlineManager.destroy();
+            this.offlineManager = null;
         }
 
         this.isInitialized = false;

@@ -1,6 +1,7 @@
 import type { RetryConfig } from './retry.js';
 import type { DeduplicationConfig } from './dedup.js';
 import type { TimeoutConfig } from './timeout.js';
+import type { OfflineConfig } from './offline.js';
 
 /**
  * Cache persistence strategy
@@ -148,6 +149,12 @@ export interface FetchPlusConfig {
      * Timeout configuration
      */
     timeout?: TimeoutConfig;
+
+    /**
+     * Offline detection and fallback configuration
+     * @default { enabled: false }
+     */
+    offline?: OfflineConfig;
 }
 
 /**
@@ -209,6 +216,18 @@ export interface FetchPlusRequestInit extends Omit<RequestInit, 'cache'> {
      * @default undefined (use global default or no timeout)
      */
     timeout?: number;
+
+    /**
+     * Offline strategy for this specific request
+     * Overrides global offline strategy
+     */
+    offlineStrategy?: import('./offline.js').OfflineStrategy;
+
+    /**
+     * Whether to queue this request if offline
+     * Overrides global queueRequests setting
+     */
+    queueIfOffline?: boolean;
 }
 
 // Re-export retry types
@@ -219,3 +238,6 @@ export type { DeduplicationConfig, InFlightRequest } from './dedup.js';
 
 // Re-export timeout types
 export type { TimeoutConfig } from './timeout.js';
+
+// Re-export offline types
+export type { OfflineConfig, OfflineStrategy, QueuedRequest } from './offline.js';

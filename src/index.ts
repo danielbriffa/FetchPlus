@@ -24,6 +24,9 @@ export { DeduplicationManager } from './features/dedup/DeduplicationManager.js';
 // Timeout manager
 export { TimeoutManager } from './features/timeout/TimeoutManager.js';
 
+// Offline manager
+export { OfflineManager } from './features/offline/OfflineManager.js';
+
 // Errors
 export { FetchPlusError, RetryError, TimeoutError } from './errors/index.js';
 
@@ -45,6 +48,9 @@ export type {
     DeduplicationConfig,
     InFlightRequest,
     TimeoutConfig,
+    OfflineConfig,
+    OfflineStrategy,
+    QueuedRequest,
 } from './types/index.js';
 
 // Create and export a default instance
