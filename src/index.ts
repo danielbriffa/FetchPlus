@@ -30,6 +30,10 @@ export { OfflineManager } from './features/offline/OfflineManager.js';
 // Stale-while-revalidate manager
 export { StaleWhileRevalidate } from './features/swr/StaleWhileRevalidate.js';
 
+// Rate limiter
+export { RateLimiter, RateLimitError } from './features/ratelimit/RateLimiter.js';
+export { RequestQueue } from './features/ratelimit/RequestQueue.js';
+
 // Errors
 export { FetchPlusError, RetryError, TimeoutError } from './errors/index.js';
 
@@ -57,6 +61,11 @@ export type {
     StaleWhileRevalidateConfig,
     CacheEntryMetadata,
     RevalidationCallback,
+    RateLimitConfig,
+    RequestPriority,
+    QueueStrategy,
+    RateLimitScope,
+    QueuedRequestEntry,
 } from './types/index.js';
 
 // Create and export a default instance

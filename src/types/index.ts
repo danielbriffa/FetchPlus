@@ -3,6 +3,8 @@ import type { DeduplicationConfig } from './dedup.js';
 import type { TimeoutConfig } from './timeout.js';
 import type { OfflineConfig } from './offline.js';
 import type { StaleWhileRevalidateConfig, CacheEntryMetadata } from './swr.js';
+import type { RateLimitConfig } from './ratelimit.js';
+import type { RequestPriority } from './ratelimit.js';
 
 /**
  * Cache persistence strategy
@@ -164,6 +166,12 @@ export interface FetchPlusConfig {
      * @default { enabled: false }
      */
     staleWhileRevalidate?: StaleWhileRevalidateConfig;
+
+    /**
+     * Rate limiting configuration
+     * @default { enabled: false }
+     */
+    rateLimit?: RateLimitConfig;
 }
 
 /**
@@ -245,6 +253,18 @@ export interface FetchPlusRequestInit extends Omit<RequestInit, 'cache'> {
      * - undefined: Use global SWR config
      */
     staleWhileRevalidate?: StaleWhileRevalidateConfig | false;
+
+    /**
+     * Request priority for rate limiting
+     * @default 'normal'
+     */
+    priority?: RequestPriority;
+
+    /**
+     * Bypass rate limiting for this request
+     * @default false
+     */
+    bypassRateLimit?: boolean;
 }
 
 // Re-export retry types
@@ -261,3 +281,6 @@ export type { OfflineConfig, OfflineStrategy, QueuedRequest } from './offline.js
 
 // Re-export SWR types
 export type { StaleWhileRevalidateConfig, CacheEntryMetadata, RevalidationCallback } from './swr.js';
+
+// Re-export rate limit types
+export type { RateLimitConfig, RequestPriority, QueueStrategy, RateLimitScope, QueuedRequestEntry } from './ratelimit.js';

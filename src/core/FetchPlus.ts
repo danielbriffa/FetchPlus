@@ -1,4 +1,4 @@
-import type { CacheInterface, FetchPlusConfig, FetchPlusRequestInit, CacheOptions, RetryConfig, DeduplicationConfig, TimeoutConfig, OfflineConfig, StaleWhileRevalidateConfig } from '../types/index.js';
+import type { CacheInterface, FetchPlusConfig, FetchPlusRequestInit, CacheOptions, RetryConfig, DeduplicationConfig, TimeoutConfig, OfflineConfig, StaleWhileRevalidateConfig, RateLimitConfig } from '../types/index.js';
 import { InterceptorManager } from '../interceptors/InterceptorManager.js';
 import { CacheStorageCache } from '../cache/CacheStorageCache.js';
 import { generateCacheKey } from '../utils/cacheKey.js';
@@ -9,16 +9,18 @@ import { DeduplicationManager } from '../features/dedup/DeduplicationManager.js'
 import { TimeoutManager } from '../features/timeout/TimeoutManager.js';
 import { OfflineManager } from '../features/offline/OfflineManager.js';
 import { StaleWhileRevalidate } from '../features/swr/StaleWhileRevalidate.js';
+import { RateLimiter } from '../features/ratelimit/RateLimiter.js';
 
 /**
  * Main FetchPlus class that orchestrates caching and interceptors
  */
 export class FetchPlus {
-    private config: Omit<Required<FetchPlusConfig>, 'retry' | 'deduplication' | 'timeout' | 'offline' | 'staleWhileRevalidate'> & { retry?: RetryConfig | false; deduplication?: DeduplicationConfig; timeout?: TimeoutConfig; offline?: OfflineConfig; staleWhileRevalidate?: StaleWhileRevalidateConfig };
+    private config: Omit<Required<FetchPlusConfig>, 'retry' | 'deduplication' | 'timeout' | 'offline' | 'staleWhileRevalidate' | 'rateLimit'> & { retry?: RetryConfig | false; deduplication?: DeduplicationConfig; timeout?: TimeoutConfig; offline?: OfflineConfig; staleWhileRevalidate?: StaleWhileRevalidateConfig; rateLimit?: RateLimitConfig };
     private interceptors: InterceptorManager;
     private syncManager: CacheSyncManager | null = null;
     private deduplicationManager: DeduplicationManager | null = null;
     private offlineManager: OfflineManager | null = null;
+    private rateLimiter: RateLimiter | null = null;
     private originalFetch: typeof fetch;
     private isInitialized = false;
 
@@ -47,6 +49,7 @@ export class FetchPlus {
             timeout: config.timeout,
             offline: config.offline,
             staleWhileRevalidate: config.staleWhileRevalidate,
+            rateLimit: config.rateLimit,
         };
 
         // Initialize sync if enabled
@@ -62,6 +65,11 @@ export class FetchPlus {
         // Initialize offline manager if enabled
         if (this.config.offline?.enabled) {
             this.offlineManager = new OfflineManager(this.config.offline, this.originalFetch);
+        }
+
+        // Initialize rate limiter if enabled
+        if (this.config.rateLimit?.enabled) {
+            this.rateLimiter = new RateLimiter(this.config.rateLimit);
         }
     }
 
@@ -125,6 +133,14 @@ export class FetchPlus {
                 this.offlineManager.destroy();
                 this.offlineManager = null;
             }
+
+            // Initialize or clear rate limiter based on updated config
+            if (config.rateLimit?.enabled && !this.rateLimiter) {
+                this.rateLimiter = new RateLimiter(config.rateLimit);
+            } else if (config.rateLimit?.enabled === false && this.rateLimiter) {
+                this.rateLimiter.clearQueues();
+                this.rateLimiter = null;
+            }
         }
 
         // Replace global fetch if enabled
@@ -166,42 +182,37 @@ export class FetchPlus {
                 processedInit = intercepted.init as FetchPlusRequestInit | undefined;
             }
 
-            // Check if deduplication should be applied (after interceptors)
-            // If deduplicate: true is explicitly set, create a manager on-demand
-            if (processedInit?.deduplicate === true && !this.deduplicationManager) {
-                this.deduplicationManager = new DeduplicationManager();
+            // Strip rate-limit-specific properties from init
+            const priority = processedInit?.priority || 'normal';
+            const initWithoutRateLimit = processedInit ? { ...processedInit } : undefined;
+            if (initWithoutRateLimit) {
+                if ('priority' in initWithoutRateLimit) {
+                    delete initWithoutRateLimit.priority;
+                }
+                if ('bypassRateLimit' in initWithoutRateLimit) {
+                    delete initWithoutRateLimit.bypassRateLimit;
+                }
             }
 
-            const shouldDeduplicate =
-                processedInit?.deduplicate !== false &&
-                this.deduplicationManager !== null;
+            // Check if rate limiting should be applied (after interceptors, before dedup/timeout/offline/cache/retry)
+            const shouldRateLimit = processedInit?.bypassRateLimit !== true && this.rateLimiter !== null;
 
-            // If deduplication is enabled, wrap the core fetch logic (cache + retry + network)
-            if (shouldDeduplicate) {
-                // Strip deduplicate property from init before processing
-                const initWithoutDedup = processedInit ? { ...processedInit } : undefined;
-                if (initWithoutDedup && 'deduplicate' in initWithoutDedup) {
-                    delete initWithoutDedup.deduplicate;
-                }
+            let response: Response;
 
-                const response = await this.deduplicationManager!.deduplicate(
+            if (shouldRateLimit) {
+                // Execute through rate limiter, which wraps dedup + core fetch
+                response = await this.rateLimiter!.executeWithRateLimit(
                     processedInput,
-                    initWithoutDedup,
+                    initWithoutRateLimit,
                     async () => {
-                        return await this.executeCoreFetch(processedInput, initWithoutDedup);
-                    }
+                        return await this.executeWithDedup(processedInput, initWithoutRateLimit);
+                    },
+                    priority
                 );
-
-                // Execute response interceptors
-                if (!init?.skipInterceptors) {
-                    return await this.interceptors.executeResponseInterceptors(response);
-                }
-
-                return response;
+            } else {
+                // No rate limiting — go through dedup + core fetch directly
+                response = await this.executeWithDedup(processedInput, initWithoutRateLimit);
             }
-
-            // Otherwise, execute core fetch directly
-            const response = await this.executeCoreFetch(processedInput, processedInit);
 
             // Execute response interceptors
             if (!init?.skipInterceptors) {
@@ -216,6 +227,41 @@ export class FetchPlus {
             }
             throw error;
         }
+    }
+
+    /**
+     * Execute with deduplication (if enabled) then core fetch
+     */
+    private async executeWithDedup(
+        processedInput: RequestInfo | URL,
+        processedInit?: FetchPlusRequestInit
+    ): Promise<Response> {
+        // Check if deduplication should be applied
+        if (processedInit?.deduplicate === true && !this.deduplicationManager) {
+            this.deduplicationManager = new DeduplicationManager();
+        }
+
+        const shouldDeduplicate =
+            processedInit?.deduplicate !== false &&
+            this.deduplicationManager !== null;
+
+        if (shouldDeduplicate) {
+            // Strip deduplicate property from init before processing
+            const initWithoutDedup = processedInit ? { ...processedInit } : undefined;
+            if (initWithoutDedup && 'deduplicate' in initWithoutDedup) {
+                delete initWithoutDedup.deduplicate;
+            }
+
+            return await this.deduplicationManager!.deduplicate(
+                processedInput,
+                initWithoutDedup,
+                async () => {
+                    return await this.executeCoreFetch(processedInput, initWithoutDedup);
+                }
+            );
+        }
+
+        return await this.executeCoreFetch(processedInput, processedInit);
     }
 
     /**
@@ -381,7 +427,7 @@ export class FetchPlus {
             processedInit?.retry
         );
 
-        // Strip retry, deduplicate, timeout, offline, and staleWhileRevalidate properties from init before passing to native fetch
+        // Strip retry, deduplicate, timeout, offline, staleWhileRevalidate, and rateLimit properties from init before passing to native fetch
         const finalInit = processedInit ? { ...processedInit } : undefined;
         if (finalInit) {
             if ('retry' in finalInit) {
@@ -401,6 +447,12 @@ export class FetchPlus {
             }
             if ('staleWhileRevalidate' in finalInit) {
                 delete finalInit.staleWhileRevalidate;
+            }
+            if ('priority' in finalInit) {
+                delete finalInit.priority;
+            }
+            if ('bypassRateLimit' in finalInit) {
+                delete finalInit.bypassRateLimit;
             }
         }
 
@@ -571,6 +623,12 @@ export class FetchPlus {
         if (this.offlineManager) {
             this.offlineManager.destroy();
             this.offlineManager = null;
+        }
+
+        // Clear rate limiter
+        if (this.rateLimiter) {
+            this.rateLimiter.clearQueues();
+            this.rateLimiter = null;
         }
 
         this.isInitialized = false;
