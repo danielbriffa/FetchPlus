@@ -1,6 +1,7 @@
-import type { CacheInterface, CacheOptions } from '../types/index.js';
+import type { CacheInterface, CacheOptions, CacheEntryMetadata } from '../types/index.js';
 
 const TTL_HEADER = 'X-FetchPlus-Expires';
+const METADATA_HEADER = 'X-FetchPlus-Metadata';
 
 /**
  * Cache Storage API implementation
@@ -74,11 +75,18 @@ export class CacheStorageCache implements CacheInterface {
             // Response is already cloned by the caller
             let responseToCache = response;
 
-            // Add TTL header if specified
-            if (options?.ttl) {
-                const expiresAt = Date.now() + options.ttl;
+            // Add TTL or metadata headers if specified
+            if (options?.ttl || options?.metadata) {
                 const headers = new Headers(response.headers);
-                headers.set(TTL_HEADER, expiresAt.toString());
+
+                if (options.ttl) {
+                    const expiresAt = Date.now() + options.ttl;
+                    headers.set(TTL_HEADER, expiresAt.toString());
+                }
+
+                if (options.metadata) {
+                    headers.set(METADATA_HEADER, JSON.stringify(options.metadata));
+                }
 
                 // Create new response with updated headers
                 const body = await response.arrayBuffer();
@@ -143,6 +151,64 @@ export class CacheStorageCache implements CacheInterface {
             return true;
         } catch {
             return false;
+        }
+    }
+
+    async getMetadata(key: string): Promise<CacheEntryMetadata | null> {
+        const cache = await this.getCache();
+        if (!cache) {
+            return null;
+        }
+
+        try {
+            const [method, url] = this.parseKey(key);
+            const request = new Request(url, { method });
+            const cached = await cache.match(request);
+
+            if (!cached) {
+                return null;
+            }
+
+            const metadataHeader = cached.headers.get(METADATA_HEADER);
+            if (!metadataHeader) {
+                return null;
+            }
+
+            return JSON.parse(metadataHeader);
+        } catch {
+            return null;
+        }
+    }
+
+    async setMetadata(key: string, metadata: CacheEntryMetadata): Promise<void> {
+        const cache = await this.getCache();
+        if (!cache) {
+            return;
+        }
+
+        try {
+            const [method, url] = this.parseKey(key);
+            const request = new Request(url, { method });
+            const cached = await cache.match(request);
+
+            if (!cached) {
+                return;
+            }
+
+            // Create new response with updated metadata header
+            const headers = new Headers(cached.headers);
+            headers.set(METADATA_HEADER, JSON.stringify(metadata));
+
+            const body = await cached.arrayBuffer();
+            const updatedResponse = new Response(body, {
+                status: cached.status,
+                statusText: cached.statusText,
+                headers,
+            });
+
+            await cache.put(request, updatedResponse);
+        } catch (error) {
+            console.warn('Failed to set metadata in Cache Storage:', error);
         }
     }
 }

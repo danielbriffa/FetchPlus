@@ -1,4 +1,4 @@
-import type { CacheInterface, CacheOptions } from '../types/index.js';
+import type { CacheInterface, CacheOptions, CacheEntryMetadata } from '../types/index.js';
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
     const bytes = new Uint8Array(buffer);
@@ -26,6 +26,7 @@ interface CachedItem {
         body: string;
     };
     expiresAt?: number;
+    metadata?: CacheEntryMetadata;
 }
 
 /**
@@ -96,6 +97,7 @@ export class SessionStorageCache implements CacheInterface {
                     body,
                 },
                 expiresAt,
+                metadata: options?.metadata,
             };
 
             sessionStorage.setItem(this.prefix + key, JSON.stringify(cached));
@@ -155,6 +157,43 @@ export class SessionStorageCache implements CacheInterface {
             return true;
         } catch {
             return false;
+        }
+    }
+
+    async getMetadata(key: string): Promise<CacheEntryMetadata | null> {
+        if (typeof sessionStorage === 'undefined') {
+            return null;
+        }
+
+        try {
+            const data = sessionStorage.getItem(this.prefix + key);
+            if (!data) {
+                return null;
+            }
+
+            const cached: CachedItem = JSON.parse(data);
+            return cached.metadata || null;
+        } catch {
+            return null;
+        }
+    }
+
+    async setMetadata(key: string, metadata: CacheEntryMetadata): Promise<void> {
+        if (typeof sessionStorage === 'undefined') {
+            return;
+        }
+
+        try {
+            const data = sessionStorage.getItem(this.prefix + key);
+            if (!data) {
+                return;
+            }
+
+            const cached: CachedItem = JSON.parse(data);
+            cached.metadata = metadata;
+            sessionStorage.setItem(this.prefix + key, JSON.stringify(cached));
+        } catch (error) {
+            console.warn('Failed to set metadata in sessionStorage:', error);
         }
     }
 }

@@ -1,4 +1,4 @@
-import type { CacheInterface, FetchPlusConfig, FetchPlusRequestInit, CacheOptions, RetryConfig, DeduplicationConfig, TimeoutConfig, OfflineConfig } from '../types/index.js';
+import type { CacheInterface, FetchPlusConfig, FetchPlusRequestInit, CacheOptions, RetryConfig, DeduplicationConfig, TimeoutConfig, OfflineConfig, StaleWhileRevalidateConfig } from '../types/index.js';
 import { InterceptorManager } from '../interceptors/InterceptorManager.js';
 import { CacheStorageCache } from '../cache/CacheStorageCache.js';
 import { generateCacheKey } from '../utils/cacheKey.js';
@@ -8,12 +8,13 @@ import { RetryManager } from '../features/retry/RetryManager.js';
 import { DeduplicationManager } from '../features/dedup/DeduplicationManager.js';
 import { TimeoutManager } from '../features/timeout/TimeoutManager.js';
 import { OfflineManager } from '../features/offline/OfflineManager.js';
+import { StaleWhileRevalidate } from '../features/swr/StaleWhileRevalidate.js';
 
 /**
  * Main FetchPlus class that orchestrates caching and interceptors
  */
 export class FetchPlus {
-    private config: Omit<Required<FetchPlusConfig>, 'retry' | 'deduplication' | 'timeout' | 'offline'> & { retry?: RetryConfig | false; deduplication?: DeduplicationConfig; timeout?: TimeoutConfig; offline?: OfflineConfig };
+    private config: Omit<Required<FetchPlusConfig>, 'retry' | 'deduplication' | 'timeout' | 'offline' | 'staleWhileRevalidate'> & { retry?: RetryConfig | false; deduplication?: DeduplicationConfig; timeout?: TimeoutConfig; offline?: OfflineConfig; staleWhileRevalidate?: StaleWhileRevalidateConfig };
     private interceptors: InterceptorManager;
     private syncManager: CacheSyncManager | null = null;
     private deduplicationManager: DeduplicationManager | null = null;
@@ -45,6 +46,7 @@ export class FetchPlus {
             deduplication: config.deduplication,
             timeout: config.timeout,
             offline: config.offline,
+            staleWhileRevalidate: config.staleWhileRevalidate,
         };
 
         // Initialize sync if enabled
@@ -307,6 +309,34 @@ export class FetchPlus {
         // Get the cache to use for this request
         const cache = this.getCacheForRequest(processedInit);
 
+        // Check if SWR should be applied (must have caching enabled and not forcing refresh)
+        const swrConfig = StaleWhileRevalidate.mergeConfigs(
+            this.config.staleWhileRevalidate,
+            processedInit?.staleWhileRevalidate
+        );
+
+        if (shouldCache && cache && !processedInit?.forceRefresh && swrConfig && swrConfig.enabled) {
+            // SWR is enabled - use SWR strategy
+            const swrManager = new StaleWhileRevalidate(swrConfig);
+            const cacheKey = generateCacheKey(processedInput, processedInit);
+            const cacheOptions = this.getCacheOptionsForRequest(processedInit);
+
+            // Create fetchFn that does the full fetch + cache pipeline
+            const fetchFn = async () => {
+                // This is the fetch logic (retry + network + cache)
+                return await this.executeFetchAndCache(
+                    processedInput,
+                    processedInit,
+                    cache,
+                    shouldSync,
+                    cacheKey,
+                    cacheOptions
+                );
+            };
+
+            return await swrManager.executeWithSWR(cacheKey, cache, fetchFn, cacheOptions);
+        }
+
         // Try to get from cache if caching is enabled AND not forcing refresh
         if (shouldCache && cache && !processedInit?.forceRefresh) {
             const cacheKey = generateCacheKey(processedInput, processedInit);
@@ -317,13 +347,41 @@ export class FetchPlus {
             }
         }
 
+        // Regular cache miss or no cache - do normal fetch
+        const cacheKey = generateCacheKey(processedInput, processedInit);
+        const cacheOptions = this.getCacheOptionsForRequest(processedInit);
+
+        return await this.executeFetchAndCache(
+            processedInput,
+            processedInit,
+            cache,
+            shouldSync,
+            cacheKey,
+            cacheOptions
+        );
+    }
+
+    /**
+     * Execute fetch with retry and cache the response
+     */
+    private async executeFetchAndCache(
+        processedInput: RequestInfo | URL,
+        processedInit: FetchPlusRequestInit | undefined,
+        cache: CacheInterface | null,
+        shouldSync: boolean,
+        cacheKey: string,
+        cacheOptions: CacheOptions
+    ): Promise<Response> {
+        // Determine if caching is enabled for this request
+        const shouldCache = this.shouldCacheRequest(processedInput, processedInit);
+
         // Determine retry config
         const retryConfig = RetryManager.mergeConfigs(
             this.config.retry,
             processedInit?.retry
         );
 
-        // Strip retry, deduplicate, timeout, and offline properties from init before passing to native fetch
+        // Strip retry, deduplicate, timeout, offline, and staleWhileRevalidate properties from init before passing to native fetch
         const finalInit = processedInit ? { ...processedInit } : undefined;
         if (finalInit) {
             if ('retry' in finalInit) {
@@ -340,6 +398,9 @@ export class FetchPlus {
             }
             if ('queueIfOffline' in finalInit) {
                 delete finalInit.queueIfOffline;
+            }
+            if ('staleWhileRevalidate' in finalInit) {
+                delete finalInit.staleWhileRevalidate;
             }
         }
 
@@ -361,9 +422,16 @@ export class FetchPlus {
 
         // Cache the response if applicable
         if (shouldCache && cache && isCacheable(response)) {
-            const cacheKey = generateCacheKey(processedInput, processedInit);
-            const cacheOptions = this.getCacheOptionsForRequest(processedInit);
-            await cache.set(cacheKey, responseToCache, cacheOptions);
+            // Include metadata with cachedAt timestamp if not already provided
+            const finalCacheOptions = {
+                ...cacheOptions,
+                metadata: cacheOptions.metadata || {
+                    cachedAt: Date.now(),
+                    revalidating: false,
+                },
+            };
+
+            await cache.set(cacheKey, responseToCache, finalCacheOptions);
 
             // Broadcast cache update to other tabs if sync is enabled
             if (shouldSync && this.syncManager) {

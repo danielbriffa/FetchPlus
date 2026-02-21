@@ -27,6 +27,9 @@ export { TimeoutManager } from './features/timeout/TimeoutManager.js';
 // Offline manager
 export { OfflineManager } from './features/offline/OfflineManager.js';
 
+// Stale-while-revalidate manager
+export { StaleWhileRevalidate } from './features/swr/StaleWhileRevalidate.js';
+
 // Errors
 export { FetchPlusError, RetryError, TimeoutError } from './errors/index.js';
 
@@ -51,6 +54,9 @@ export type {
     OfflineConfig,
     OfflineStrategy,
     QueuedRequest,
+    StaleWhileRevalidateConfig,
+    CacheEntryMetadata,
+    RevalidationCallback,
 } from './types/index.js';
 
 // Create and export a default instance

@@ -2,6 +2,7 @@ import type { RetryConfig } from './retry.js';
 import type { DeduplicationConfig } from './dedup.js';
 import type { TimeoutConfig } from './timeout.js';
 import type { OfflineConfig } from './offline.js';
+import type { StaleWhileRevalidateConfig, CacheEntryMetadata } from './swr.js';
 
 /**
  * Cache persistence strategy
@@ -16,6 +17,8 @@ export interface CacheOptions {
     ttl?: number;
     /** Cache persistence strategy */
     persistence?: CachePersistence;
+    /** Metadata for cache entry (SWR, etc.) */
+    metadata?: CacheEntryMetadata;
 }
 
 /**
@@ -155,6 +158,12 @@ export interface FetchPlusConfig {
      * @default { enabled: false }
      */
     offline?: OfflineConfig;
+
+    /**
+     * Stale-while-revalidate configuration
+     * @default { enabled: false }
+     */
+    staleWhileRevalidate?: StaleWhileRevalidateConfig;
 }
 
 /**
@@ -228,6 +237,14 @@ export interface FetchPlusRequestInit extends Omit<RequestInit, 'cache'> {
      * Overrides global queueRequests setting
      */
     queueIfOffline?: boolean;
+
+    /**
+     * Stale-while-revalidate configuration for this request
+     * - StaleWhileRevalidateConfig: Enable SWR with these options
+     * - false: Disable SWR for this request
+     * - undefined: Use global SWR config
+     */
+    staleWhileRevalidate?: StaleWhileRevalidateConfig | false;
 }
 
 // Re-export retry types
@@ -241,3 +258,6 @@ export type { TimeoutConfig } from './timeout.js';
 
 // Re-export offline types
 export type { OfflineConfig, OfflineStrategy, QueuedRequest } from './offline.js';
+
+// Re-export SWR types
+export type { StaleWhileRevalidateConfig, CacheEntryMetadata, RevalidationCallback } from './swr.js';

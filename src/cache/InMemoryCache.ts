@@ -1,11 +1,11 @@
-import type { CacheInterface, CacheOptions } from '../types/index.js';
+import type { CacheInterface, CacheOptions, CacheEntryMetadata } from '../types/index.js';
 
 /**
  * In-memory cache implementation using a Map
  * Cache is cleared on page reload
  */
 export class InMemoryCache implements CacheInterface {
-    private cache: Map<string, { response: Response; expiresAt?: number; lastAccessed: number }> = new Map();
+    private cache: Map<string, { response: Response; expiresAt?: number; lastAccessed: number; metadata?: CacheEntryMetadata }> = new Map();
     private maxEntries: number;
 
     constructor(maxEntries: number = 500) {
@@ -45,6 +45,7 @@ export class InMemoryCache implements CacheInterface {
             response: response.clone(),
             expiresAt,
             lastAccessed: Date.now(),
+            metadata: options?.metadata,
         });
     }
 
@@ -70,6 +71,18 @@ export class InMemoryCache implements CacheInterface {
         }
 
         return true;
+    }
+
+    async getMetadata(key: string): Promise<CacheEntryMetadata | null> {
+        const cached = this.cache.get(key);
+        return cached?.metadata || null;
+    }
+
+    async setMetadata(key: string, metadata: CacheEntryMetadata): Promise<void> {
+        const cached = this.cache.get(key);
+        if (cached) {
+            cached.metadata = metadata;
+        }
     }
 
     private evictOldest(): void {
