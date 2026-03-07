@@ -53,7 +53,7 @@ export default defineConfig({
             provider: 'v8',
             include: ['src/**/*.ts'],
             exclude: ['src/types/**'],
-            reporter: ['text', 'text-summary', 'html'],
+            reporter: ['text', 'text-summary', 'html', 'json-summary'],
             reportsDirectory: './coverage',
         },
     },

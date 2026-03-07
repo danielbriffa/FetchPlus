@@ -2,8 +2,12 @@
 
 A lightweight drop-in enhancement for the native `fetch()` API. Zero dependencies. Zero API changes.
 
-[![npm version](https://img.shields.io/npm/v/fetchplus.svg)](https://www.npmjs.com/package/fetchplus)
+Built with the help of Claude.
+
+[![npm version](https://img.shields.io/npm/v/fetchplus.svg)](https://www.npmjs.com/package/@danielbriffa/fetchplus)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/danielbriffa/FetchPlus/actions/workflows/ci.yml/badge.svg)](https://github.com/danielbriffa/FetchPlus/actions/workflows/ci.yml)
+![Coverage](./coverage/badges.svg)
 
 ```bash
 npm install fetchplus

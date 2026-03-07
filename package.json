@@ -18,6 +18,7 @@
   "scripts": {
     "build": "tsc && vite build",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "dev": "vite build --watch",
     "examples": "npm run build && npx vite --port 3000",
