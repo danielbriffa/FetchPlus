@@ -1,22 +1,6 @@
 import type { CacheInterface, CacheOptions, CacheEntryMetadata } from '../types/index.js';
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-        binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary);
-}
-
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes.buffer;
-}
+import { arrayBufferToBase64, base64ToArrayBuffer } from '../utils/base64.js';
+import { safeJSONParse } from '../utils/safeJSON.js';
 
 interface CachedItem {
     response: {
@@ -48,7 +32,11 @@ export class SessionStorageCache implements CacheInterface {
                 return null;
             }
 
-            const cached: CachedItem = JSON.parse(data);
+            const cached = safeJSONParse<CachedItem>(data);
+            if (!cached) {
+                sessionStorage.removeItem(this.prefix + key);
+                return null;
+            }
 
             // Check if expired
             if (cached.expiresAt && Date.now() > cached.expiresAt) {
@@ -146,7 +134,10 @@ export class SessionStorageCache implements CacheInterface {
                 return false;
             }
 
-            const cached: CachedItem = JSON.parse(data);
+            const cached = safeJSONParse<CachedItem>(data);
+            if (!cached) {
+                return false;
+            }
 
             // Check if expired
             if (cached.expiresAt && Date.now() > cached.expiresAt) {
@@ -171,7 +162,10 @@ export class SessionStorageCache implements CacheInterface {
                 return null;
             }
 
-            const cached: CachedItem = JSON.parse(data);
+            const cached = safeJSONParse<CachedItem>(data);
+            if (!cached) {
+                return null;
+            }
             return cached.metadata || null;
         } catch {
             return null;
@@ -189,7 +183,10 @@ export class SessionStorageCache implements CacheInterface {
                 return;
             }
 
-            const cached: CachedItem = JSON.parse(data);
+            const cached = safeJSONParse<CachedItem>(data);
+            if (!cached) {
+                return;
+            }
             cached.metadata = metadata;
             sessionStorage.setItem(this.prefix + key, JSON.stringify(cached));
         } catch (error) {

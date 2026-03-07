@@ -16,7 +16,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc && vite build && terser dist/index.js -o dist/index.js --ecma 2020 --module --toplevel --compress passes=3,pure_funcs=['console.debug'],drop_debugger=true --mangle toplevel --format comments=false --source-map \"content='dist/index.js.map',url='index.js.map'\"",
+    "build": "tsc && vite build",
     "test": "vitest run",
     "test:watch": "vitest",
     "dev": "vite build --watch",
@@ -33,7 +33,8 @@
     "cache-storage",
     "fetch-api"
   ],
-  "author": "",
+  "author": "Daniel Briffa (https://danielbriffa.com)",
+  "type": "module",
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.10.0",
@@ -46,9 +47,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/fetchplus.git"
+    "url": "https://github.com/danielbriffa/FetchPlus.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/fetchplus/issues"
-  }
+    "url": "https://github.com/danielbriffa/FetchPlus/issues"
+  },
+  "homepage": "https://github.com/danielbriffa/FetchPlus#readme"
 }

@@ -363,4 +363,221 @@ describe('RequestQueue', () => {
             expect(typeof retrieved?.resolve).toBe('function');
         });
     });
+
+    describe('getAll', () => {
+        it('returns empty array when queue is empty', () => {
+            const queue = new RequestQueue('fifo');
+            const all = queue.getAll();
+
+            expect(Array.isArray(all)).toBe(true);
+            expect(all.length).toBe(0);
+        });
+
+        it('returns all enqueued entries', () => {
+            const queue = new RequestQueue('fifo');
+
+            const entry1 = { id: '1', priority: 'normal' } as any;
+            const entry2 = { id: '2', priority: 'high' } as any;
+            const entry3 = { id: '3', priority: 'low' } as any;
+
+            queue.enqueue(entry1);
+            queue.enqueue(entry2);
+            queue.enqueue(entry3);
+
+            const all = queue.getAll();
+
+            expect(all.length).toBe(3);
+            expect(all[0].id).toBe('1');
+            expect(all[1].id).toBe('2');
+            expect(all[2].id).toBe('3');
+        });
+
+        it('returns entries in queue order (FIFO)', () => {
+            const queue = new RequestQueue('fifo');
+
+            for (let i = 1; i <= 5; i++) {
+                queue.enqueue({ id: String(i), priority: 'normal' } as any);
+            }
+
+            const all = queue.getAll();
+
+            expect(all.length).toBe(5);
+            for (let i = 0; i < 5; i++) {
+                expect(all[i].id).toBe(String(i + 1));
+            }
+        });
+
+        it('returns entries in priority order when using priority strategy', () => {
+            const queue = new RequestQueue('priority');
+
+            queue.enqueue({ id: 'normal1', priority: 'normal' } as any);
+            queue.enqueue({ id: 'low1', priority: 'low' } as any);
+            queue.enqueue({ id: 'high1', priority: 'high' } as any);
+            queue.enqueue({ id: 'critical1', priority: 'critical' } as any);
+
+            const all = queue.getAll();
+
+            expect(all.length).toBe(4);
+            expect(all[0].id).toBe('critical1');
+            expect(all[1].id).toBe('high1');
+            expect(all[2].id).toBe('normal1');
+            expect(all[3].id).toBe('low1');
+        });
+
+        it('returned array is a copy (modifying it does not affect the queue)', () => {
+            const queue = new RequestQueue('fifo');
+
+            queue.enqueue({ id: '1', priority: 'normal' } as any);
+            queue.enqueue({ id: '2', priority: 'normal' } as any);
+
+            const all = queue.getAll();
+            all.push({ id: '3', priority: 'normal' } as any);
+
+            // Original queue should still have only 2 items
+            expect(queue.size()).toBe(2);
+
+            // Dequeue should get the original items
+            const first = queue.dequeue();
+            const second = queue.dequeue();
+
+            expect(first?.id).toBe('1');
+            expect(second?.id).toBe('2');
+        });
+
+        it('getAll() does not remove items from queue', () => {
+            const queue = new RequestQueue('fifo');
+
+            queue.enqueue({ id: '1', priority: 'normal' } as any);
+            queue.enqueue({ id: '2', priority: 'normal' } as any);
+
+            const all1 = queue.getAll();
+            const all2 = queue.getAll();
+
+            expect(all1.length).toBe(2);
+            expect(all2.length).toBe(2);
+            expect(queue.size()).toBe(2);
+        });
+
+        it('getAll() reflects current queue state', () => {
+            const queue = new RequestQueue('fifo');
+
+            queue.enqueue({ id: '1', priority: 'normal' } as any);
+            expect(queue.getAll().length).toBe(1);
+
+            queue.enqueue({ id: '2', priority: 'normal' } as any);
+            expect(queue.getAll().length).toBe(2);
+
+            queue.dequeue();
+            expect(queue.getAll().length).toBe(1);
+        });
+
+        it('returned copy contains exact same item properties', () => {
+            const queue = new RequestQueue('fifo');
+
+            const resolve = vi.fn();
+            const reject = vi.fn();
+            const fetchFn = vi.fn();
+            const timestamp = Date.now();
+
+            const entry = {
+                id: 'test-id',
+                input: 'http://example.com',
+                init: undefined,
+                priority: 'high' as const,
+                timestamp,
+                resolve,
+                reject,
+                fetchFn,
+            };
+
+            queue.enqueue(entry);
+            const all = queue.getAll();
+
+            expect(all[0].id).toBe('test-id');
+            expect(all[0].input).toBe('http://example.com');
+            expect(all[0].priority).toBe('high');
+            expect(all[0].timestamp).toBe(timestamp);
+            expect(all[0].resolve).toBe(resolve);
+            expect(all[0].reject).toBe(reject);
+            expect(all[0].fetchFn).toBe(fetchFn);
+        });
+
+        it('getAll() with priority queue respects FIFO within priority level', () => {
+            const queue = new RequestQueue('priority');
+
+            queue.enqueue({ id: 'h1', priority: 'high' } as any);
+            queue.enqueue({ id: 'h2', priority: 'high' } as any);
+            queue.enqueue({ id: 'h3', priority: 'high' } as any);
+
+            const all = queue.getAll();
+
+            expect(all[0].id).toBe('h1');
+            expect(all[1].id).toBe('h2');
+            expect(all[2].id).toBe('h3');
+        });
+
+        it('getAll() with large queue returns all items', () => {
+            const queue = new RequestQueue('fifo');
+            const itemCount = 100;
+
+            for (let i = 0; i < itemCount; i++) {
+                queue.enqueue({ id: String(i), priority: 'normal' } as any);
+            }
+
+            const all = queue.getAll();
+
+            expect(all.length).toBe(itemCount);
+            for (let i = 0; i < itemCount; i++) {
+                expect(all[i].id).toBe(String(i));
+            }
+        });
+
+        it('getAll() on queue with mixed priorities returns correctly', () => {
+            const queue = new RequestQueue('priority');
+
+            queue.enqueue({ id: 'a', priority: 'normal' } as any);
+            queue.enqueue({ id: 'b', priority: 'critical' } as any);
+            queue.enqueue({ id: 'c', priority: 'low' } as any);
+            queue.enqueue({ id: 'd', priority: 'high' } as any);
+            queue.enqueue({ id: 'e', priority: 'normal' } as any);
+
+            const all = queue.getAll();
+
+            expect(all.length).toBe(5);
+            // Critical first
+            expect(all[0].id).toBe('b');
+            // High second
+            expect(all[1].id).toBe('d');
+            // Normal (FIFO)
+            expect(all[2].id).toBe('a');
+            expect(all[3].id).toBe('e');
+            // Low last
+            expect(all[4].id).toBe('c');
+        });
+
+        it('returned array is shallow copy (array itself is different)', () => {
+            const queue = new RequestQueue('fifo');
+
+            queue.enqueue({ id: '1', priority: 'normal' } as any);
+            queue.enqueue({ id: '2', priority: 'normal' } as any);
+
+            const all1 = queue.getAll();
+            const all2 = queue.getAll();
+
+            // Arrays themselves should be different
+            expect(all1).not.toBe(all2);
+            expect(all2.length).toBe(2);
+        });
+
+        it('getAll() returns different array instances each time', () => {
+            const queue = new RequestQueue('fifo');
+
+            queue.enqueue({ id: '1', priority: 'normal' } as any);
+
+            const all1 = queue.getAll();
+            const all2 = queue.getAll();
+
+            expect(all1).not.toBe(all2);
+        });
+    });
 });

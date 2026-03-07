@@ -9,7 +9,7 @@ export class InMemoryCache implements CacheInterface {
     private maxEntries: number;
 
     constructor(maxEntries: number = 500) {
-        this.maxEntries = maxEntries;
+        this.maxEntries = Math.max(1, maxEntries);
     }
 
     async get(key: string): Promise<Response | null> {

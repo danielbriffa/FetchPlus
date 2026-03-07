@@ -241,4 +241,194 @@ describe.each([
             expect(storage.getItem('fetchplus:corrupted')).toBeNull();
         });
     });
+
+    describe('Metadata Sanitization', () => {
+        it('stores and retrieves metadata correctly via cache operations', async () => {
+            const metadata = {
+                cachedAt: Date.now(),
+                revalidating: false,
+            };
+
+            const response = new Response(JSON.stringify({ data: 'test' }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+            });
+
+            await cache.set('meta-test', response, { metadata });
+
+            const cached = await cache.get('meta-test');
+            expect(cached).not.toBeNull();
+
+            const cachedMeta = await cache.getMetadata('meta-test');
+            expect(cachedMeta).not.toBeNull();
+            expect(cachedMeta?.cachedAt).toBe(metadata.cachedAt);
+            expect(cachedMeta?.revalidating).toBe(false);
+        });
+
+        it('metadata survives round-trip through cache set/get', async () => {
+            const cachedAt = Date.now();
+            const metadata = {
+                cachedAt,
+                revalidating: false,
+            };
+
+            const response = new Response('cached content', {
+                status: 200,
+            });
+
+            await cache.set('round-trip', response, { metadata });
+
+            const retrieved = await cache.getMetadata('round-trip');
+            expect(retrieved?.cachedAt).toBe(cachedAt);
+            expect(retrieved?.revalidating).toBe(false);
+        });
+
+        it('normal CacheEntryMetadata with cachedAt and revalidating works fine', async () => {
+            const response = new Response('test data');
+
+            const normalMetadata = {
+                cachedAt: 1234567890,
+                revalidating: true,
+            };
+
+            await cache.set('normal-meta', response, { metadata: normalMetadata });
+
+            const meta = await cache.getMetadata('normal-meta');
+            expect(meta?.cachedAt).toBe(1234567890);
+            expect(meta?.revalidating).toBe(true);
+        });
+
+        it('safeJSONParse protects against malicious JSON with dangerous properties', async () => {
+            // Manually create JSON with dangerous properties
+            const maliciousJSON = '{"cachedAt": 1234567890, "__proto__": {"admin": true}}';
+
+            // When LocalStorageCache tries to parse this, safeJSONParse should reject it
+            // Let's set it directly in storage and try to retrieve it
+            storage.setItem('fetchplus:malicious', maliciousJSON);
+
+            // Now try to get metadata
+            const meta = await cache.getMetadata('malicious');
+
+            // safeJSONParse should have rejected the poisoned JSON
+            expect(meta).toBeNull();
+        });
+
+        it('metadata can be updated via setMetadata', async () => {
+            const response = new Response('test data');
+            const initialMetadata = {
+                cachedAt: Date.now(),
+                revalidating: false,
+            };
+
+            await cache.set('updatable', response, { metadata: initialMetadata });
+
+            const updatedMetadata = {
+                cachedAt: initialMetadata.cachedAt,
+                revalidating: true,
+            };
+
+            await cache.setMetadata('updatable', updatedMetadata);
+
+            const retrieved = await cache.getMetadata('updatable');
+            expect(retrieved?.revalidating).toBe(true);
+        });
+
+        it('getMetadata returns null for non-existent key', async () => {
+            const meta = await cache.getMetadata('non-existent-key');
+            expect(meta).toBeNull();
+        });
+
+        it('metadata is independent of response data', async () => {
+            const response = new Response(JSON.stringify({ secret: 'data' }), {
+                status: 200,
+            });
+
+            const metadata = {
+                cachedAt: Date.now(),
+                revalidating: false,
+            };
+
+            await cache.set('separate', response, { metadata });
+
+            // Get response data
+            const cached = await cache.get('separate');
+            const data = await cached?.json();
+
+            // Get metadata
+            const meta = await cache.getMetadata('separate');
+
+            // Both should be independent and correct
+            expect(data?.secret).toBe('data');
+            expect(meta?.cachedAt).toBeDefined();
+        });
+
+        it('multiple entries with different metadata work correctly', async () => {
+            const meta1 = { cachedAt: 1000, revalidating: false };
+            const meta2 = { cachedAt: 2000, revalidating: true };
+            const meta3 = { cachedAt: 3000, revalidating: false };
+
+            await cache.set('key1', new Response('data1'), { metadata: meta1 });
+            await cache.set('key2', new Response('data2'), { metadata: meta2 });
+            await cache.set('key3', new Response('data3'), { metadata: meta3 });
+
+            const retrieved1 = await cache.getMetadata('key1');
+            const retrieved2 = await cache.getMetadata('key2');
+            const retrieved3 = await cache.getMetadata('key3');
+
+            expect(retrieved1?.cachedAt).toBe(1000);
+            expect(retrieved2?.cachedAt).toBe(2000);
+            expect(retrieved2?.revalidating).toBe(true);
+            expect(retrieved3?.cachedAt).toBe(3000);
+        });
+
+        it('handles metadata with only cachedAt property', async () => {
+            const response = new Response('test');
+
+            const minimalMetadata = {
+                cachedAt: Date.now(),
+            };
+
+            await cache.set('minimal', response, { metadata: minimalMetadata });
+
+            const meta = await cache.getMetadata('minimal');
+            expect(meta?.cachedAt).toBeDefined();
+            expect(meta?.revalidating).toBeUndefined();
+        });
+
+        it('handles metadata with revalidating as undefined', async () => {
+            const response = new Response('test');
+
+            const metadata = {
+                cachedAt: Date.now(),
+                revalidating: undefined,
+            };
+
+            await cache.set('undefined-reval', response, { metadata });
+
+            const meta = await cache.getMetadata('undefined-reval');
+            expect(meta?.cachedAt).toBeDefined();
+            expect(meta?.revalidating).toBeUndefined();
+        });
+
+        it('metadata is not lost when cache entry is accessed multiple times', async () => {
+            const response = new Response('test');
+            const metadata = {
+                cachedAt: Date.now(),
+                revalidating: false,
+            };
+
+            await cache.set('persistent', response, { metadata });
+
+            // Access multiple times
+            const meta1 = await cache.getMetadata('persistent');
+            const meta2 = await cache.getMetadata('persistent');
+            const cached1 = await cache.get('persistent');
+            const meta3 = await cache.getMetadata('persistent');
+
+            expect(meta1?.cachedAt).toBe(metadata.cachedAt);
+            expect(meta2?.cachedAt).toBe(metadata.cachedAt);
+            expect(meta3?.cachedAt).toBe(metadata.cachedAt);
+            expect(cached1).not.toBeNull();
+        });
+    });
 });

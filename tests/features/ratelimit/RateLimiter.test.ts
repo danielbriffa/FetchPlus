@@ -864,4 +864,225 @@ describe('RateLimiter', () => {
             expect(maxGlobalConcurrent).toBeLessThanOrEqual(2);
         });
     });
+
+    describe('Queue Clearing', () => {
+        it('clearQueues() rejects all pending queued promises with RateLimitError', async () => {
+            const limiter = new RateLimiter({
+                enabled: true,
+                maxConcurrent: 1,
+            });
+
+            // Fire-and-forget: occupies the slot (never resolves)
+            const _blocking = limiter.acquire(() => new Promise(() => {}));
+
+            // Queue additional tasks
+            const q1 = limiter.acquire(async () => {});
+            const q2 = limiter.acquire(async () => {});
+            const q3 = limiter.acquire(async () => {});
+
+            // Clear queues - should reject all pending promises
+            limiter.clearQueues();
+
+            // All queued promises should reject with RateLimitError
+            await expect(q1).rejects.toThrow(RateLimitError);
+            await expect(q2).rejects.toThrow(RateLimitError);
+            await expect(q3).rejects.toThrow(RateLimitError);
+        });
+
+        it('clearQueues() results in getTotalQueueSize() returning 0', async () => {
+            const limiter = new RateLimiter({
+                enabled: true,
+                maxConcurrent: 1,
+            });
+
+            // Fire-and-forget: occupies the slot
+            const _blocking = limiter.acquire(() => new Promise(() => {}));
+
+            // Queue additional tasks (catch rejections to avoid unhandled rejection errors)
+            limiter.acquire(async () => {}).catch(() => {});
+            limiter.acquire(async () => {}).catch(() => {});
+            limiter.acquire(async () => {}).catch(() => {});
+
+            expect(limiter.getTotalQueueSize()).toBe(3);
+
+            // Clear queues
+            limiter.clearQueues();
+
+            // Queue size should be 0
+            expect(limiter.getTotalQueueSize()).toBe(0);
+        });
+
+        it('clearQueues() does not affect currently executing requests', async () => {
+            const limiter = new RateLimiter({
+                enabled: true,
+                maxConcurrent: 1,
+            });
+
+            let activeCountDuringExecution = 0;
+
+            // Fire-and-forget: occupies the slot
+            const _blocking = limiter.acquire(async () => {
+                activeCountDuringExecution = limiter.getActiveCount();
+                await new Promise(resolve => setTimeout(resolve, 10));
+            });
+
+            // Queue additional tasks (catch rejections to avoid unhandled rejection errors)
+            limiter.acquire(async () => {}).catch(() => {});
+            limiter.acquire(async () => {}).catch(() => {});
+
+            // Clear queues
+            limiter.clearQueues();
+
+            // Queue size should now be 0
+            expect(limiter.getTotalQueueSize()).toBe(0);
+
+            // Active count should still be 1 (blocking task is still running)
+            expect(limiter.getActiveCount()).toBe(1);
+
+            await vi.runAllTimersAsync();
+            await _blocking;
+
+            // After completion, active count should be 0
+            expect(limiter.getActiveCount()).toBe(0);
+            expect(activeCountDuringExecution).toBe(1);
+        });
+
+        it('after clearQueues(), new requests can still be queued and executed', async () => {
+            const limiter = new RateLimiter({
+                enabled: true,
+                maxConcurrent: 1,
+            });
+
+            const executionOrder: string[] = [];
+
+            // Fire-and-forget: occupies the slot
+            const _blocking = limiter.acquire(async () => {
+                executionOrder.push('blocking');
+                await new Promise(resolve => setTimeout(resolve, 20));
+            });
+
+            // Queue initial tasks (to fill queue) - catch rejections from clearQueues()
+            limiter.acquire(async () => {
+                executionOrder.push('q1');
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }).catch(() => {});
+            limiter.acquire(async () => {
+                executionOrder.push('q2');
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }).catch(() => {});
+
+            // Clear queues
+            limiter.clearQueues();
+
+            // New request after clearing should work fine
+            const newRequest = limiter.acquire(async () => {
+                executionOrder.push('new');
+                await new Promise(resolve => setTimeout(resolve, 10));
+            });
+
+            await vi.runAllTimersAsync();
+            await newRequest;
+
+            // Should have blocking and new request, but not q1/q2 (they were cleared)
+            expect(executionOrder).toContain('blocking');
+            expect(executionOrder).toContain('new');
+            expect(executionOrder).not.toContain('q1');
+            expect(executionOrder).not.toContain('q2');
+        });
+
+        it('clearQueues() works with per-domain scope', async () => {
+            const limiter = new RateLimiter({
+                enabled: true,
+                maxConcurrent: 1,
+                scope: 'per-domain',
+            });
+
+            // Fire-and-forget: occupies domain1 slot
+            const _blocking = limiter.acquire(
+                () => new Promise(() => {}),
+                'normal',
+                'domain1.com'
+            );
+
+            // Queue tasks for domain1 (one goes to queue since slot is occupied)
+            const q1 = limiter.acquire(async () => {}, 'normal', 'domain1.com');
+
+            // Queue tasks for domain2 (can execute immediately since it's a different domain)
+            // First task for domain2 takes the slot
+            const q2 = limiter.acquire(async () => {}, 'normal', 'domain2.com');
+
+            // Second task for domain2 also goes to queue
+            const q3 = limiter.acquire(async () => {}, 'normal', 'domain2.com');
+
+            // Third task for domain2 also goes to queue
+            const q4 = limiter.acquire(async () => {}, 'normal', 'domain2.com');
+
+            expect(limiter.getTotalQueueSize()).toBe(3);
+
+            // Clear all queues
+            limiter.clearQueues();
+
+            // Queued promises should reject
+            await expect(q1).rejects.toThrow(RateLimitError);
+            await expect(q3).rejects.toThrow(RateLimitError);
+            await expect(q4).rejects.toThrow(RateLimitError);
+
+            // q2 may or may not reject depending on timing (it got to execute)
+            // Just verify queue is now empty
+            expect(limiter.getTotalQueueSize()).toBe(0);
+        });
+
+        it('clearQueues() error message is descriptive', async () => {
+            const limiter = new RateLimiter({
+                enabled: true,
+                maxConcurrent: 1,
+            });
+
+            const _blocking = limiter.acquire(() => new Promise(() => {}));
+            const q1 = limiter.acquire(async () => {});
+
+            limiter.clearQueues();
+
+            try {
+                await q1;
+                expect.fail('Should have thrown RateLimitError');
+            } catch (error) {
+                expect(error).toBeInstanceOf(RateLimitError);
+                expect((error as Error).message).toContain('cleared');
+            }
+        });
+
+        it('clearQueues() can be called multiple times safely', async () => {
+            const limiter = new RateLimiter({
+                enabled: true,
+                maxConcurrent: 1,
+            });
+
+            const _blocking = limiter.acquire(() => new Promise(() => {}));
+            limiter.acquire(async () => {}).catch(() => {});
+
+            expect(limiter.getTotalQueueSize()).toBe(1);
+
+            // Clear multiple times should not cause errors
+            limiter.clearQueues();
+            expect(limiter.getTotalQueueSize()).toBe(0);
+
+            limiter.clearQueues();
+            expect(limiter.getTotalQueueSize()).toBe(0);
+
+            limiter.clearQueues();
+            expect(limiter.getTotalQueueSize()).toBe(0);
+        });
+
+        it('clearQueues() on empty queue does not throw', async () => {
+            const limiter = new RateLimiter({
+                enabled: true,
+                maxConcurrent: 1,
+            });
+
+            // Clear an empty queue - should not throw
+            expect(() => limiter.clearQueues()).not.toThrow();
+            expect(limiter.getTotalQueueSize()).toBe(0);
+        });
+    });
 });

@@ -300,7 +300,16 @@ export class RateLimiter {
    * Clear all queues
    */
   clearQueues(): void {
+    // Reject all pending in global queue
+    const globalEntries = this.globalQueue.getAll();
+    globalEntries.forEach(entry => entry.reject(new RateLimitError('Rate limiter queue cleared')));
     this.globalQueue.clear();
+
+    // Reject all pending in domain queues
+    for (const queue of this.perDomainQueues.values()) {
+      const entries = queue.getAll();
+      entries.forEach(entry => entry.reject(new RateLimitError('Rate limiter queue cleared')));
+    }
     this.perDomainQueues.clear();
   }
 }

@@ -1,7 +1,19 @@
 import type { CacheInterface, CacheOptions, CacheEntryMetadata } from '../types/index.js';
+import { safeJSONParse } from '../utils/safeJSON.js';
 
 const TTL_HEADER = 'X-FetchPlus-Expires';
 const METADATA_HEADER = 'X-FetchPlus-Metadata';
+
+/**
+ * Sanitize metadata from response headers to prevent prototype pollution
+ */
+function sanitizeMetadata(raw: any): CacheEntryMetadata | null {
+  if (!raw || typeof raw !== 'object') return null;
+  return {
+    cachedAt: typeof raw.cachedAt === 'number' ? raw.cachedAt : Date.now(),
+    revalidating: typeof raw.revalidating === 'boolean' ? raw.revalidating : false,
+  };
+}
 
 /**
  * Cache Storage API implementation
@@ -174,7 +186,8 @@ export class CacheStorageCache implements CacheInterface {
                 return null;
             }
 
-            return JSON.parse(metadataHeader);
+            const parsed = safeJSONParse<any>(metadataHeader);
+            return sanitizeMetadata(parsed);
         } catch {
             return null;
         }

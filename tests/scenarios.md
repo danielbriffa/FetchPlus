@@ -605,3 +605,18 @@ This document outlines all test scenarios for the FetchPlus project. Each scenar
 **Scenario: BroadcastChannel not available**
 - Description: Verify CacheSyncManager handles missing BroadcastChannel
 - Expected: isAvailable() returns false; broadcast() is no-op; no errors thrown
+
+---
+
+## New Features (Planned)
+
+Test scenarios for the following upcoming features are documented in `temp/new-feature-scenarios.md`:
+
+1. **Automatic Retry with Exponential Backoff** — retry logic, backoff strategies, Retry-After header, abort integration
+2. **Request Deduplication** — in-flight sharing, cleanup, cache key alignment
+3. **Timeout Support** — TimeoutError, AbortSignal merging, global/per-request config
+4. **Stale-While-Revalidate** — serve stale, background refresh, callbacks
+5. **Offline Fallback** — offline detection, cache-first/network-first strategies, request queuing
+6. **Request Rate Limiting / Throttling** — concurrency limits, priority queue, per-domain throttling
+
+See also the implementation plan at `temp/implementation-plan.md` for architecture and task breakdown.

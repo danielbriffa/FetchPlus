@@ -24,23 +24,29 @@ export class OfflineManager {
   private requestQueue: QueuedRequest[] = [];
   private nextRequestId = 0;
   private originalFetch: typeof fetch;
+  private boundHandleOnline: () => void;
+  private boundHandleOffline: () => void;
 
   constructor(config: OfflineConfig = {}, originalFetch?: typeof fetch) {
     this.config = { ...DEFAULT_OFFLINE_CONFIG, ...config };
     this.isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
     this.originalFetch = originalFetch || globalThis.fetch.bind(globalThis);
 
+    // Bind handlers to store references for proper cleanup
+    this.boundHandleOnline = this.handleOnline.bind(this);
+    this.boundHandleOffline = this.handleOffline.bind(this);
+
     // Listen for online/offline events
     if (typeof window !== 'undefined') {
-      window.addEventListener('online', this.handleOnline);
-      window.addEventListener('offline', this.handleOffline);
+      window.addEventListener('online', this.boundHandleOnline);
+      window.addEventListener('offline', this.boundHandleOffline);
     }
   }
 
   /**
    * Handle online event
    */
-  private handleOnline = (): void => {
+  private handleOnline(): void {
     this.isOnline = true;
 
     // Call callback safely
@@ -60,7 +66,7 @@ export class OfflineManager {
   /**
    * Handle offline event
    */
-  private handleOffline = (): void => {
+  private handleOffline(): void {
     this.isOnline = false;
 
     // Call callback safely
@@ -341,8 +347,8 @@ export class OfflineManager {
    */
   destroy(): void {
     if (typeof window !== 'undefined') {
-      window.removeEventListener('online', this.handleOnline);
-      window.removeEventListener('offline', this.handleOffline);
+      window.removeEventListener('online', this.boundHandleOnline);
+      window.removeEventListener('offline', this.boundHandleOffline);
     }
     this.clearQueue();
   }

@@ -177,7 +177,7 @@ export class FetchPlus {
             let processedInit = init;
 
             if (!init?.skipInterceptors) {
-                const intercepted = await this.interceptors.executeRequestInterceptors(input, init);
+                const intercepted = await this.interceptors.executeRequestInterceptors(input, init as RequestInit | undefined);
                 processedInput = intercepted.input;
                 processedInit = intercepted.init as FetchPlusRequestInit | undefined;
             }
@@ -201,9 +201,10 @@ export class FetchPlus {
 
             if (shouldRateLimit) {
                 // Execute through rate limiter, which wraps dedup + core fetch
+                // initWithoutRateLimit has priority and bypassRateLimit stripped, safe to cast
                 response = await this.rateLimiter!.executeWithRateLimit(
                     processedInput,
-                    initWithoutRateLimit,
+                    initWithoutRateLimit as RequestInit | undefined,
                     async () => {
                         return await this.executeWithDedup(processedInput, initWithoutRateLimit);
                     },
@@ -252,9 +253,10 @@ export class FetchPlus {
                 delete initWithoutDedup.deduplicate;
             }
 
+            // initWithoutDedup has deduplicate stripped, safe to cast
             return await this.deduplicationManager!.deduplicate(
                 processedInput,
-                initWithoutDedup,
+                initWithoutDedup as RequestInit | undefined,
                 async () => {
                     return await this.executeCoreFetch(processedInput, initWithoutDedup);
                 }
@@ -322,9 +324,10 @@ export class FetchPlus {
                 }
             }
 
+            // initWithoutOffline has offline properties stripped, safe to cast
             return await this.offlineManager.executeWithOfflineHandling(
                 processedInput,
-                initWithoutOffline,
+                initWithoutOffline as RequestInit | undefined,
                 cache,
                 async () => {
                     return await this.executeCoreFetchLogic(processedInput, initWithoutOffline);
@@ -364,7 +367,7 @@ export class FetchPlus {
         if (shouldCache && cache && !processedInit?.forceRefresh && swrConfig && swrConfig.enabled) {
             // SWR is enabled - use SWR strategy
             const swrManager = new StaleWhileRevalidate(swrConfig);
-            const cacheKey = generateCacheKey(processedInput, processedInit);
+            const cacheKey = generateCacheKey(processedInput, processedInit as RequestInit | undefined);
             const cacheOptions = this.getCacheOptionsForRequest(processedInit);
 
             // Create fetchFn that does the full fetch + cache pipeline
@@ -385,7 +388,7 @@ export class FetchPlus {
 
         // Try to get from cache if caching is enabled AND not forcing refresh
         if (shouldCache && cache && !processedInit?.forceRefresh) {
-            const cacheKey = generateCacheKey(processedInput, processedInit);
+            const cacheKey = generateCacheKey(processedInput, processedInit as RequestInit | undefined);
             const cachedResponse = await cache.get(cacheKey);
 
             if (cachedResponse) {
@@ -394,7 +397,7 @@ export class FetchPlus {
         }
 
         // Regular cache miss or no cache - do normal fetch
-        const cacheKey = generateCacheKey(processedInput, processedInit);
+        const cacheKey = generateCacheKey(processedInput, processedInit as RequestInit | undefined);
         const cacheOptions = this.getCacheOptionsForRequest(processedInit);
 
         return await this.executeFetchAndCache(
@@ -454,6 +457,18 @@ export class FetchPlus {
             if ('bypassRateLimit' in finalInit) {
                 delete finalInit.bypassRateLimit;
             }
+            if ('skipInterceptors' in finalInit) {
+                delete finalInit.skipInterceptors;
+            }
+            if ('enableSync' in finalInit) {
+                delete finalInit.enableSync;
+            }
+            if ('forceRefresh' in finalInit) {
+                delete finalInit.forceRefresh;
+            }
+            if ('fetchPlusCache' in finalInit) {
+                delete finalInit.fetchPlusCache;
+            }
         }
 
         // Create retry manager if needed
@@ -462,7 +477,8 @@ export class FetchPlus {
         // Make the actual fetch call (either cache miss or forceRefresh)
         // Wrap in retry logic if retry is enabled
         const fetchFn = async () => {
-            return await this.originalFetch(processedInput, finalInit);
+            // finalInit has all custom properties stripped, safe to cast as RequestInit
+            return await this.originalFetch(processedInput, finalInit as RequestInit);
         };
 
         const response = retryManager

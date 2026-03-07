@@ -176,9 +176,9 @@ export interface FetchPlusConfig {
 
 /**
  * Extended request init with FetchPlus options
- * Uses Omit to avoid conflict with native RequestInit.cache property
+ * Uses Omit to avoid conflict with native RequestInit.cache and priority properties
  */
-export interface FetchPlusRequestInit extends Omit<RequestInit, 'cache'> {
+export interface FetchPlusRequestInit extends Omit<RequestInit, 'cache' | 'priority'> {
     /**
      * Cache configuration for this specific request
      * - CacheOptions: Use default cache with these options

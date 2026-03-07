@@ -61,6 +61,13 @@ export class RequestQueue {
   }
 
   /**
+   * Get all queued requests (returns a copy)
+   */
+  getAll(): QueuedRequestEntry[] {
+    return [...this.queue];
+  }
+
+  /**
    * Clear all queued requests
    */
   clear(): void {
