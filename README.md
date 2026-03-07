@@ -7,7 +7,7 @@ Built with the help of Claude.
 [![npm version](https://img.shields.io/npm/v/fetchplus.svg)](https://www.npmjs.com/package/@danielbriffa/fetchplus)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/danielbriffa/FetchPlus/actions/workflows/ci.yml/badge.svg)](https://github.com/danielbriffa/FetchPlus/actions/workflows/ci.yml)
-![Coverage](./coverage/badges.svg)
+![Coverage](./.github/badges/coverage.svg)
 
 ```bash
 npm install fetchplus
