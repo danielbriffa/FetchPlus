@@ -10,7 +10,7 @@ Built with the help of Claude.
 ![Coverage](./.github/badges/coverage.svg)
 
 ```bash
-npm install fetchplus
+npm install @danielbriffa/fetchplus
 ```
 
 > For full documentation see [EXTENDED_DOC.md](./EXTENDED_DOC.md).
@@ -26,7 +26,7 @@ import FetchPlus, {
   InMemoryCache,          // or CacheStorageCache (default), LocalStorageCache, SessionStorageCache
   RetryError,
   TimeoutError,
-} from 'fetchplus';
+} from '@danielbriffa/fetchplus';
 
 const fp = new FetchPlus({
 
@@ -197,7 +197,7 @@ ic.clearAll();                // remove all
 | `InMemoryCache(maxEntries?)` | No | No | JS heap | SPAs, fastest access |
 
 ```typescript
-import { CacheStorageCache, LocalStorageCache, SessionStorageCache, InMemoryCache } from 'fetchplus';
+import { CacheStorageCache, LocalStorageCache, SessionStorageCache, InMemoryCache } from '@danielbriffa/fetchplus';
 
 new FetchPlus({ cache: new CacheStorageCache('my-cache-v2') });
 new FetchPlus({ cache: new LocalStorageCache() });
@@ -238,7 +238,7 @@ fp.restore();                                       // unpatch globalThis.fetch
 ## Error Types
 
 ```typescript
-import { RetryError, TimeoutError } from 'fetchplus';
+import { RetryError, TimeoutError } from '@danielbriffa/fetchplus';
 
 try {
   await fetch('https://api.example.com/data', { timeout: 5000, retry: { maxRetries: 3 } });
